@@ -13,4 +13,4 @@ edition = "2018"
 [dependencies]
 reqwest = { version = "0.10", features = ["json", "blocking"] } # http requests
 tokio = { version = "0.2", features = ["full"] } # async http requests
-flate2 = { version = "1.0", features = ["zlib"], default-features = false } # gzip compression
+flate2 = "1.0" # gzip compression
