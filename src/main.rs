@@ -65,7 +65,7 @@ fn cat_file(args: &mut Args) -> Res<String> {
     let sha = validate_sha(args)?;
 
     let (dir, filename) = sha.split_at(2);
-    let path = ["./", dir, "/", filename].concat();
+    let path = ["./.git/objects/", dir, "/", filename].concat();
     let file = fs::File::open(&path)
         .map_err(|e| format!("object '{}' not found. {}", path, e))?;
 
