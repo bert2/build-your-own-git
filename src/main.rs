@@ -1,26 +1,25 @@
 use std::env;
 use std::env::Args;
-use std::fs;
 use std::error::Error;
-use std::iter::Skip;
-use flate2::read::GzDecoder;
+use std::fs;
 use std::io::prelude::*;
+use flate2::read::GzDecoder;
 
 type Res<T> = std::result::Result<T, Box<dyn Error>>;
 
 fn main() {
-    fn run(args: &mut Skip<Args>) -> Res<String> {
+    fn run(args: &mut Args) -> Res<String> {
         let cmd = args.next()
             .ok_or("no command provided. available commands: init, cat-file.")?;
         match cmd.as_str() {
             "init" => init(),
             "cat-file" => cat_file(args),
             _ => Err(format!("unknown command '{}'.", cmd).into())
-            // s => Err(["unknown command '", cmd, "'."].concat().into())
         }
     }
 
-    let mut args = env::args().skip(1);
+    let mut args = env::args();
+    args.next();
     let exit_code = match run(&mut args) {
         Ok(msg) => {
             println!("{}", msg);
@@ -42,8 +41,8 @@ fn init() -> Res<String> {
     Ok("initialized git directory.".to_string())
 }
 
-fn cat_file(args: &mut Skip<Args>) -> Res<String> {
-    fn assert_prettyprint(args: &mut Skip<Args>) -> Res<()> {
+fn cat_file(args: &mut Args) -> Res<String> {
+    fn assert_prettyprint(args: &mut Args) -> Res<()> {
         let arg = args.next()
             .ok_or("not enough arguments provided for command cat-file. missing flag '-p'.")?;
         match arg.as_str() {
@@ -52,7 +51,7 @@ fn cat_file(args: &mut Skip<Args>) -> Res<String> {
         }
     }
 
-    fn validate_sha(args: &mut Skip<Args>) -> Res<String> {
+    fn validate_sha(args: &mut Args) -> Res<String> {
         let sha = args.next()
             .ok_or("not enough arguments provided for command cat-file. missing SHA.")?;
         if sha.len() < 3 {
@@ -67,8 +66,8 @@ fn cat_file(args: &mut Skip<Args>) -> Res<String> {
 
     let (dir, filename) = sha.split_at(3);
     let path = [dir, "/", filename].concat();
-    println!("path: {}", path);
-    let file = fs::File::open(path)?;
+    let file = fs::File::open(&path)
+        .map_err(|e| format!("blob '{}' not found. {}", path, e))?;
 
     let mut decoder = GzDecoder::new(file);
     let mut contents = String::new();
