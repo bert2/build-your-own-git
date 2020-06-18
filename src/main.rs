@@ -66,7 +66,9 @@ fn cat_file(args: &mut Skip<Args>) -> Res<String> {
     let sha = validate_sha(args)?;
 
     let (dir, filename) = sha.split_at(3);
-    let file = fs::File::open([dir, "/", filename].concat())?;
+    let path = [dir, "/", filename].concat();
+    println!("path: {}", path);
+    let file = fs::File::open(path)?;
 
     let mut decoder = GzDecoder::new(file);
     let mut contents = String::new();
