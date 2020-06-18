@@ -1,10 +1,25 @@
 use std::env;
-use std::fmt;
+use std::env::Args;
 use std::fs;
-use std::io;
+use std::error::Error;
+use std::iter::Skip;
+use flate2::read::GzDecoder;
+use std::io::prelude::*;
+
+type Res<T> = std::result::Result<T, Box<dyn Error>>;
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
+    fn run(args: &Skip<Args>) -> Res<String> {
+        let cmd = args.next()
+            .ok_or("no command provided. available commands: init, cat-file.")?;
+        match cmd.as_str() {
+            "init" => init(),
+            "cat-file" => cat_file(&args),
+            s => Err(format!("unknown command '{}'.", s))
+        }
+    }
+
+    let args = env::args().skip(1);
     let exit_code = match run(&args) {
         Ok(msg) => {
             println!("{}", msg);
@@ -18,23 +33,43 @@ fn main() {
     std::process::exit(exit_code);
 }
 
-fn run(args: &Vec<String>) -> Result<String, String> {
-    match args[1].as_str() {
-        "init" => init()
-            .map(|()| "initialized git directory.".to_string())
-            .map_err(stringify),
-        s => Err(format!("unknown command '{}'.", s))
-    }
-}
-
-fn init() -> io::Result<()> {
+fn init() -> Res<String> {
     fs::create_dir(".git")?;
     fs::create_dir(".git/objects")?;
     fs::create_dir(".git/refs")?;
     fs::write(".git/HEAD", "ref: refs/heads/master\n")?;
-    Ok(())
+    Ok("initialized git directory.".to_string())
 }
 
-fn stringify<T: fmt::Display>(x: T) -> String {
-    format!("{}", x)
+fn cat_file(args: &Skip<Args>) -> Res<String> {
+    fn assert_prettyprint(args: &Skip<Args>) -> Res<()> {
+        let arg = args.next()
+            .ok_or("not enough arguments provided for command cat-file. missing flag '-p'.")?;
+        match arg.as_str() {
+            "-p" => Ok(()),
+            _ => Err("cat-file must be used with '-p'.")?
+        }
+    }
+
+    fn validate_sha(args: &Skip<Args>) -> Res<String> {
+        let sha = args.next()
+            .ok_or("not enough arguments provided for command cat-file. missing SHA.")?;
+        if sha.len() < 3 {
+            Err("provided SHA is invalid.")?
+        } else {
+            Ok(sha)
+        }
+    }
+
+    assert_prettyprint(args)?;
+    let sha = validate_sha(args)?;
+
+    let (dir, filename) = sha.split_at(3);
+    let file = fs::File::open([dir, "/", filename].concat())?;
+
+    let dec = GzDecoder::new(file);
+    let mut contents = String::new();
+    dec.read_to_string(&mut contents)?;
+
+    Ok(contents)
 }
