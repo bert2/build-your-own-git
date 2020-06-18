@@ -64,10 +64,10 @@ fn cat_file(args: &mut Args) -> Res<String> {
     assert_prettyprint(args)?;
     let sha = validate_sha(args)?;
 
-    let (dir, filename) = sha.split_at(3);
-    let path = [dir, "/", filename].concat();
+    let (dir, filename) = sha.split_at(2);
+    let path = ["./", dir, "/", filename].concat();
     let file = fs::File::open(&path)
-        .map_err(|e| format!("blob '{}' not found. {}", path, e))?;
+        .map_err(|e| format!("object '{}' not found. {}", path, e))?;
 
     let mut decoder = GzDecoder::new(file);
     let mut contents = String::new();
