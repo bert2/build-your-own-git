@@ -3,7 +3,7 @@ use std::env::Args;
 use std::error::Error;
 use std::fs;
 use std::io::prelude::*;
-use flate2::read::GzDecoder;
+use flate2::read::ZlibDecoder;
 
 type Res<T> = std::result::Result<T, Box<dyn Error>>;
 
@@ -69,7 +69,7 @@ fn cat_file(args: &mut Args) -> Res<String> {
     let file = fs::File::open(&path)
         .map_err(|e| format!("object '{}' not found. {}", path, e))?;
 
-    let mut decoder = GzDecoder::new(file);
+    let mut decoder = ZlibDecoder::new(file);
     let mut contents = String::new();
     decoder.read_to_string(&mut contents)?;
 
