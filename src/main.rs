@@ -1,4 +1,4 @@
-use std::{env, env::Args, fs, io::prelude::*, str};
+use std::{env, env::Args, fs, io::prelude::*};
 use flate2::{read::ZlibDecoder, write::ZlibEncoder, Compression};
 use sha1::{Sha1, Digest};
 
