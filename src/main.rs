@@ -120,6 +120,7 @@ fn hash_object(args: &mut Args) -> Res<String> {
     let sha = compute_sha1(&in_content)?;
     let (dir, out_filename) = sha.split_at(2);
 
+    fs::create_dir_all(["./.git/objects/", dir].concat())?;
     let out_filepath = ["./.git/objects/", dir, "/", out_filename].concat();
     let out_file = fs::File::create(&out_filepath)
         .map_err(|e| format!("failed to create blob '{}'. {}", out_filepath, e))?;
