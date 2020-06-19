@@ -58,8 +58,8 @@ fn cat_file(args: &mut Args) -> Res<String> {
     fn validate_sha(args: &mut Args) -> Res<String> {
         let sha = args.next()
             .ok_or("not enough arguments provided for command cat-file. missing SHA.")?;
-        if sha.len() < 3 {
-            Err("provided SHA is invalid.")?
+        if sha.len() != 40 {
+            Err("provided SHA does not have the required length of 40 characters.")?
         } else {
             Ok(sha)
         }
@@ -105,16 +105,16 @@ fn hash_object(args: &mut Args) -> Res<String> {
 
     let mut in_data = String::new();
     fs::File::open(in_filename)?.read_to_string(&mut in_data)?;
-    in_data = ["blob ", &in_data.len().to_string(), "\x00", &in_data].concat();
+    let in_content = ["blob ", &in_data.len().to_string(), "\x00", &in_data].concat();
 
     let mut hasher = Sha1::new();
-    hasher.update(&in_data);
+    hasher.update(&in_content);
     let sha = str::from_utf8(&hasher.finalize())?.to_string();
     let (dir, out_filename) = sha.split_at(2);
 
     let out_file = fs::File::create(["./.git/objects/", dir, "/", out_filename].concat())?;
     let mut encoder = ZlibEncoder::new(out_file, Compression::default());
-    encoder.write(in_data.as_bytes())?;
+    encoder.write(in_content.as_bytes())?;
 
     Ok(sha)
 }
