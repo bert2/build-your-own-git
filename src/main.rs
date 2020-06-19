@@ -114,6 +114,7 @@ fn hash_object(args: &mut Args) -> Res<String> {
 
     assert_write(args)?;
     let in_filename = get_filename(args)?;
+    println!("debug: storing file '{}'...", in_filename);
 
     let in_content = create_content(&in_filename)?;
     let sha = compute_sha1(&in_content)?;
