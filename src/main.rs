@@ -51,7 +51,7 @@ fn cat_file(args: &mut Args) -> Res<String> {
             .ok_or("not enough arguments provided for command cat-file. missing flag '-p'.")?;
         match arg.as_str() {
             "-p" => Ok(()),
-            _ => Err("cat-file must be used with '-p'.")?
+            _ => Err(format!("cat-file expects flag '-p'. got '{}' instead.", arg))?
         }
     }
 
@@ -95,21 +95,36 @@ fn hash_object(args: &mut Args) -> Res<String> {
             .ok_or("not enough arguments provided for command hash-object. missing flag '-w'.")?;
         match arg.as_str() {
             "-w" => Ok(()),
-            _ => Err("hash-object must be used with '-w'.")?
+            _ => Err(format!("hash-object expects flag '-w'. got '{}' instead.", arg))?
         }
     }
 
+    fn get_filename(args: &mut Args) -> Res<String> {
+        let name = args.next()
+            .ok_or("not enough arguments provided for command hash-object. missing file path.")?;
+        Ok(name)
+    }
+
+    fn create_content(filename: &String) -> Res<String> {
+        let mut in_data = String::new();
+        fs::File::open(filename)?.read_to_string(&mut in_data)?;
+        let content = ["blob ", &in_data.len().to_string(), "\x00", &in_data].concat();
+        Ok(content)
+    }
+
+    fn compute_sha1(content: &String) -> Res<String> {
+        let mut hasher = Sha1::new();
+        hasher.update(content);
+        let sha_bytes = hasher.finalize();
+        let sha = str::from_utf8(&sha_bytes)?;
+        Ok(sha.to_string())
+    }
+
     assert_write(args)?;
-    let in_filename = args.next()
-        .ok_or("not enough arguments provided for command hash-object. missing file path.")?;
+    let in_filename = get_filename(args)?;
 
-    let mut in_data = String::new();
-    fs::File::open(in_filename)?.read_to_string(&mut in_data)?;
-    let in_content = ["blob ", &in_data.len().to_string(), "\x00", &in_data].concat();
-
-    let mut hasher = Sha1::new();
-    hasher.update(&in_content);
-    let sha = str::from_utf8(&hasher.finalize())?.to_string();
+    let in_content = create_content(&in_filename)?;
+    let sha = compute_sha1(&in_content)?;
     let (dir, out_filename) = sha.split_at(2);
 
     let out_file = fs::File::create(["./.git/objects/", dir, "/", out_filename].concat())?;
