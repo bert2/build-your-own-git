@@ -22,7 +22,7 @@ fn main() {
     args.next();
     let exit_code = match run(&mut args) {
         Ok(msg) => {
-            println!("{}", msg);
+            print!("{}", msg);
             0
         },
         Err(err) => {
@@ -63,10 +63,9 @@ fn cat_file(args: &mut Args) -> Res<String> {
 
     fn parse_content(content: String) -> Res<(String, String)> {
         let mut split = content.split('\x00');
-        let header = split.next().ok_or("object content could not be parsed.")?.to_string();
-        let mut data = split.next().ok_or("object content could not be parsed.")?.to_string();
-        data.pop().ok_or("object content could not be parsed.")?;
-        Ok((header, data))
+        let header = split.next().ok_or("object content could not be parsed.")?;
+        let data = split.next().ok_or("object content could not be parsed.")?;
+        Ok((header.to_string(), data.to_string()))
     }
 
     assert_prettyprint(args)?;
