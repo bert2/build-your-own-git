@@ -72,7 +72,7 @@ fn cat_file(args: &mut Args) -> Res<String> {
     let (dir, filename) = sha.split_at(2);
     let path = ["./.git/objects/", dir, "/", filename].concat();
     let file = fs::File::open(&path)
-        .map_err(|e| format!("object '{}' not found. {}", path, e))?;
+        .map_err(|e| format!("failed to read object '{}'. {}", path, e))?;
 
     let mut decoder = ZlibDecoder::new(file);
     let mut decompressed = String::new();
@@ -101,7 +101,8 @@ fn hash_object(args: &mut Args) -> Res<String> {
 
     fn create_content(filename: &String) -> Res<String> {
         let mut in_data = String::new();
-        fs::File::open(filename)?.read_to_string(&mut in_data)?;
+        fs::File::open(filename)?.read_to_string(&mut in_data)
+            .map_err(|e| format!("failed to read file '{}'. {}", filename, e))?;
         let content = ["blob ", &in_data.len().to_string(), "\x00", &in_data].concat();
         Ok(content)
     }
@@ -114,13 +115,14 @@ fn hash_object(args: &mut Args) -> Res<String> {
 
     assert_write(args)?;
     let in_filename = get_filename(args)?;
-    println!("debug: storing file '{}'...", in_filename);
 
     let in_content = create_content(&in_filename)?;
     let sha = compute_sha1(&in_content)?;
     let (dir, out_filename) = sha.split_at(2);
 
-    let out_file = fs::File::create(["./.git/objects/", dir, "/", out_filename].concat())?;
+    let out_filepath = ["./.git/objects/", dir, "/", out_filename].concat();
+    let out_file = fs::File::create(&out_filepath)
+        .map_err(|e| format!("failed to create blob '{}'. {}", out_filepath, e))?;
     let mut encoder = ZlibEncoder::new(out_file, Compression::default());
     encoder.write(in_content.as_bytes())?;
 
