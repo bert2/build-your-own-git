@@ -1,11 +1,5 @@
-use std::env;
-use std::env::Args;
-use std::fs;
-use std::str;
-use std::io::prelude::*;
-use flate2::read::ZlibDecoder;
-use flate2::write::ZlibEncoder;
-use flate2::Compression;
+use std::{env, env::Args, fs, io::prelude::*, str};
+use flate2::{read::ZlibDecoder, write::ZlibEncoder, Compression};
 use sha1::{Sha1, Digest};
 
 type Res<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -113,11 +107,9 @@ fn hash_object(args: &mut Args) -> Res<String> {
     }
 
     fn compute_sha1(content: &String) -> Res<String> {
-        let mut hasher = Sha1::new();
-        hasher.update(content);
-        let sha_bytes = hasher.finalize();
-        let sha = str::from_utf8(&sha_bytes)?;
-        Ok(sha.to_string())
+        let sha_bytes = Sha1::digest(content.as_bytes());
+        let sha: Vec<String> = sha_bytes.iter().map(|x| format!("{:x}", x)).collect();
+        Ok(sha.concat())
     }
 
     assert_write(args)?;
