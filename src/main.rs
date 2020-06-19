@@ -109,7 +109,7 @@ fn hash_object(args: &mut Args) -> Res<String> {
 
     fn compute_sha1(content: &String) -> Res<String> {
         let sha_bytes = Sha1::digest(content.as_bytes());
-        let sha: Vec<String> = sha_bytes.iter().map(|x| format!("{:x}", x)).collect();
+        let sha: Vec<String> = sha_bytes.iter().map(|x| format!("{:02x}", x)).collect();
         Ok(sha.concat())
     }
 
