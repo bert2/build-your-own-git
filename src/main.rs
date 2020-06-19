@@ -61,6 +61,14 @@ fn cat_file(args: &mut Args) -> Res<String> {
         }
     }
 
+    fn parse_content(content: String) -> Res<(String, String)> {
+        let mut split = content.split('\x00');
+        let header = split.next().ok_or("object content could not be parsed.")?.to_string();
+        let mut data = split.next().ok_or("object content could not be parsed.")?.to_string();
+        data.pop().ok_or("object content could not be parsed.")?;
+        Ok((header, data))
+    }
+
     assert_prettyprint(args)?;
     let sha = validate_sha(args)?;
 
@@ -70,8 +78,10 @@ fn cat_file(args: &mut Args) -> Res<String> {
         .map_err(|e| format!("object '{}' not found. {}", path, e))?;
 
     let mut decoder = ZlibDecoder::new(file);
-    let mut contents = String::new();
-    decoder.read_to_string(&mut contents)?;
+    let mut decompressed = String::new();
+    decoder.read_to_string(&mut decompressed)?;
 
-    Ok(contents)
+    let (_, data) = parse_content(decompressed)?;
+
+    Ok(data)
 }
