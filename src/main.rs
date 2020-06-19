@@ -1,19 +1,23 @@
 use std::env;
 use std::env::Args;
-use std::error::Error;
 use std::fs;
+use std::str;
 use std::io::prelude::*;
 use flate2::read::ZlibDecoder;
+use flate2::write::ZlibEncoder;
+use flate2::Compression;
+use sha1::{Sha1, Digest};
 
-type Res<T> = std::result::Result<T, Box<dyn Error>>;
+type Res<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 fn main() {
     fn run(args: &mut Args) -> Res<String> {
         let cmd = args.next()
             .ok_or("no command provided. available commands: init, cat-file.")?;
         match cmd.as_str() {
-            "init" => init(),
-            "cat-file" => cat_file(args),
+            "init"        => init(),
+            "cat-file"    => cat_file(args),
+            "hash-object" => hash_object(args),
             _ => Err(format!("unknown command '{}'.", cmd).into())
         }
     }
@@ -83,4 +87,34 @@ fn cat_file(args: &mut Args) -> Res<String> {
     let (_, data) = parse_content(decompressed)?;
 
     Ok(data)
+}
+
+fn hash_object(args: &mut Args) -> Res<String> {
+    fn assert_write(args: &mut Args) -> Res<()> {
+        let arg = args.next()
+            .ok_or("not enough arguments provided for command hash-object. missing flag '-w'.")?;
+        match arg.as_str() {
+            "-p" => Ok(()),
+            _ => Err("hash-object must be used with '-w'.")?
+        }
+    }
+
+    assert_write(args)?;
+    let in_filename = args.next()
+        .ok_or("not enough arguments provided for command hash-object. missing file path.")?;
+
+    let mut in_data = String::new();
+    fs::File::open(in_filename)?.read_to_string(&mut in_data)?;
+    in_data = ["blob ", &in_data.len().to_string(), "\x00", &in_data].concat();
+
+    let mut hasher = Sha1::new();
+    hasher.update(&in_data);
+    let sha = str::from_utf8(&hasher.finalize())?.to_string();
+    let (dir, out_filename) = sha.split_at(2);
+
+    let out_file = fs::File::create(["./.git/objects/", dir, "/", out_filename].concat())?;
+    let mut encoder = ZlibEncoder::new(out_file, Compression::default());
+    encoder.write(in_data.as_bytes())?;
+
+    Ok(sha)
 }
