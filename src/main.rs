@@ -94,7 +94,7 @@ fn hash_object(args: &mut Args) -> Res<String> {
         let arg = args.next()
             .ok_or("not enough arguments provided for command hash-object. missing flag '-w'.")?;
         match arg.as_str() {
-            "-p" => Ok(()),
+            "-w" => Ok(()),
             _ => Err("hash-object must be used with '-w'.")?
         }
     }
