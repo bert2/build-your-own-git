@@ -8,9 +8,10 @@ fn main() {
     fn run(args: &mut Args) -> Res<String> {
         let cmd = args.next().ok_or("No command provided.")?;
         match cmd.as_str() {
-            "init"        => init(),
             "cat-file"    => cat_file(args),
             "hash-object" => hash_object(args),
+            "init"        => init(),
+            "ls-tree"     => ls_tree(args),
             _ => Err(format!("Unknown command '{}'.", cmd).into())
         }
     }
@@ -41,41 +42,18 @@ fn init() -> Res<String> {
 }
 
 fn cat_file(args: &mut Args) -> Res<String> {
-    fn validate_sha(args: &mut Args) -> Res<String> {
-        let sha = args.next().ok_or("Missing SHA argument.")?;
-        match sha.len() {
-            40 => Ok(sha),
-            _  => Err("Provided SHA does not have the required length of 40 characters.".into())
-        }
-    }
-
-    fn open_object(sha: &str) -> Res<fs::File> {
-        let (dir, filename) = sha.split_at(2);
-        let path = ["./.git/objects/", dir, "/", filename].concat();
-        let file = fs::File::open(&path)
-            .map_err(|e| format!("Failed to read object '{}'. {}", path, e))?;
-        Ok(file)
-    }
-
-    fn decompress(file: fs::File) -> Res<String> {
-        let mut decoder = ZlibDecoder::new(file);
-        let mut decompressed = String::new();
-        decoder.read_to_string(&mut decompressed)?;
-        Ok(decompressed)
-    }
-
-    fn parse_content<'a>(content: &'a String) -> Res<(&'a str, &'a str)> {
+    fn parse_blob_content<'a>(content: &'a String) -> Res<(&'a str, &'a str)> {
         let mut split = content.split('\x00');
-        let header = split.next().unwrap(); // `split` cannot be empty
-        let data = split.next().ok_or("Object content could not be parsed.")?;
+        let header = split.next().unwrap();
+        let data = split.next().ok_or("Content of blob object could not be parsed.")?;
         Ok((header, data))
     }
 
-    expect_flag(args, 'p')?;
-    let sha = validate_sha(args)?;
+    expect_arg_flag(args, "-p")?;
+    let sha = expect_arg_sha(args)?;
     let file = open_object(&sha)?;
     let decompressed = decompress(file)?;
-    let (_, data) = parse_content(&decompressed)?;
+    let (_, data) = parse_blob_content(&decompressed)?;
     Ok(data.to_string())
 }
 
@@ -115,7 +93,7 @@ fn hash_object(args: &mut Args) -> Res<String> {
         Ok(())
     }
 
-    expect_flag(args, 'w')?;
+    expect_arg_flag(args, "-w")?;
     let in_file = args.next().ok_or("Missing file argument.")?;
     let content = create_content_from_file(&in_file)?;
     let sha = compute_sha(&content)?;
@@ -124,12 +102,50 @@ fn hash_object(args: &mut Args) -> Res<String> {
     Ok(sha)
 }
 
-fn expect_flag(args: &mut Args, flag: char) -> Res<()> {
+fn ls_tree(args: &mut Args) -> Res<String> {
+    fn parse_tree_content<'a>(content: &'a String) -> Res<&'a str> {
+        Ok(content)
+    }
+
+    expect_arg_flag(args, "--name-only")?;
+    let sha = expect_arg_sha(args)?;
+    let file = open_object(&sha)?;
+    let decompressed = decompress(file)?;
+    let data = parse_tree_content(&decompressed)?;
+    Ok(data.to_string())
+}
+
+// helper functions
+
+fn expect_arg_flag(args: &mut Args, flag: &str) -> Res<()> {
     let arg = args.next()
-        .ok_or(format!("Not enough arguments provided: missing flag '-{}'.", flag))?;
-    if arg == format!("-{}", flag) {
+        .ok_or(format!("Not enough arguments provided: missing flag '{}'.", flag))?;
+    if arg == flag {
         Ok(())
     } else {
-        Err(format!("Expecting flag '-{}'. Got '{}' instead.", flag, arg).into())
+        Err(format!("Expecting flag '--{}'. Got '{}' instead.", flag, arg).into())
     }
+}
+
+fn expect_arg_sha(args: &mut Args) -> Res<String> {
+    let sha = args.next().ok_or("Missing SHA argument.")?;
+    match sha.len() {
+        40 => Ok(sha),
+        _  => Err("Provided SHA does not have the required length of 40 characters.".into())
+    }
+}
+
+fn open_object(sha: &str) -> Res<fs::File> {
+    let (dir, filename) = sha.split_at(2);
+    let path = ["./.git/objects/", dir, "/", filename].concat();
+    let file = fs::File::open(&path)
+        .map_err(|e| format!("Failed to read object '{}'. {}", path, e))?;
+    Ok(file)
+}
+
+fn decompress(file: fs::File) -> Res<String> {
+    let mut decoder = ZlibDecoder::new(file);
+    let mut decompressed = String::new();
+    decoder.read_to_string(&mut decompressed)?;
+    Ok(decompressed)
 }
