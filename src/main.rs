@@ -1,4 +1,4 @@
-use std::{env, env::Args, fs, io::prelude::*};
+use std::{env, env::Args, fs, io::prelude::*, str};
 use flate2::{read::ZlibDecoder, write::ZlibEncoder, Compression};
 use sha1::{Sha1, Digest};
 
@@ -52,7 +52,7 @@ fn cat_file(args: &mut Args) -> Res<String> {
     expect_arg_flag(args, "-p")?;
     let sha = expect_arg_sha(args)?;
     let file = open_object(&sha)?;
-    let decompressed = decompress(file)?;
+    let decompressed = decompress_utf8(file)?;
     let (_, data) = parse_blob_content(&decompressed)?;
     Ok(data.to_string())
 }
@@ -103,14 +103,16 @@ fn hash_object(args: &mut Args) -> Res<String> {
 }
 
 fn ls_tree(args: &mut Args) -> Res<String> {
-    fn parse_tree_content<'a>(content: &'a String) -> Res<&'a str> {
-        Ok(content)
+    fn parse_tree_content(content: &Vec<u8>) -> Res<&str> {
+        let mut parts = content.split(|byte| *byte == 0);
+        let header = str::from_utf8(parts.next().unwrap())?;
+        Ok(header)
     }
 
     expect_arg_flag(args, "--name-only")?;
     let sha = expect_arg_sha(args)?;
     let file = open_object(&sha)?;
-    let decompressed = decompress(file)?;
+    let decompressed = decompress_binary(file)?;
     let data = parse_tree_content(&decompressed)?;
     Ok(data.to_string())
 }
@@ -143,10 +145,18 @@ fn open_object(sha: &str) -> Res<fs::File> {
     Ok(file)
 }
 
-fn decompress(file: fs::File) -> Res<String> {
+fn decompress_utf8(file: fs::File) -> Res<String> {
     let mut decoder = ZlibDecoder::new(file);
     let mut decompressed = String::new();
     decoder.read_to_string(&mut decompressed)
         .map_err(|e| format!("Unable to decompress file into `String`. {}", e))?;
+    Ok(decompressed)
+}
+
+fn decompress_binary(file: fs::File) -> Res<Vec<u8>> {
+    let mut decoder = ZlibDecoder::new(file);
+    let mut decompressed = Vec::new();
+    decoder.read_to_end(&mut decompressed)
+        .map_err(|e| format!("Unable to decompress binary file. {}", e))?;
     Ok(decompressed)
 }
