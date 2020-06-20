@@ -146,6 +146,7 @@ fn open_object(sha: &str) -> Res<fs::File> {
 fn decompress(file: fs::File) -> Res<String> {
     let mut decoder = ZlibDecoder::new(file);
     let mut decompressed = String::new();
-    decoder.read_to_string(&mut decompressed)?;
+    decoder.read_to_string(&mut decompressed)
+        .map_err(|e| format!("Unable to decompress file into `String`. {}", e))?;
     Ok(decompressed)
 }
