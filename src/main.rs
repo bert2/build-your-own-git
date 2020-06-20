@@ -103,11 +103,14 @@ fn hash_object(args: &mut Args) -> Res<String> {
 }
 
 fn ls_tree(args: &mut Args) -> Res<String> {
-    fn parse_tree_content(content: &Vec<u8>) -> Res<&str> {
-        let mut parts = content.split(|byte| *byte == 0);
-        parts.next().unwrap(); // skip header "tree <byte size>"
-        let header = str::from_utf8(parts.next().unwrap())?;
-        Ok(header)
+    fn parse_tree_content(content: &Vec<u8>) -> Res<Vec<&str>> {
+        let entries = content.split(|byte| *byte == 0)
+            .skip(1) // skip header "tree <byte size>"
+            .enumerate()
+            .filter_map(|(i, x)| if i % 2 == 0 { Some(x) } else { None })
+            .map(str::from_utf8)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(entries)
     }
 
     expect_arg_flag(args, "--name-only")?;
@@ -115,7 +118,7 @@ fn ls_tree(args: &mut Args) -> Res<String> {
     let file = open_object(&sha)?;
     let decompressed = decompress_binary(file)?;
     let data = parse_tree_content(&decompressed)?;
-    Ok(data.to_string())
+    Ok(data.join("\n"))
 }
 
 // helper functions
