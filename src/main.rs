@@ -105,8 +105,8 @@ fn hash_object(args: &mut Args) -> Res<String> {
 fn ls_tree(args: &mut Args) -> Res<String> {
     fn parse_tree_content(content: &Vec<u8>) -> Res<Vec<String>> {//Res<Vec<&str>> {
         let entries = content.split(|&byte| byte == 0)
-            .skip(1)    // skip header "tree <byte size>"
-            .step_by(2) // skip SHAs
+            //.skip(1)    // skip header "tree <byte size>"
+            //.step_by(2) // skip SHAs
             //.map(str::from_utf8)
             .map(|bytes| bytes.iter()
                 .map(|byte| format!("{:02x}", byte))
