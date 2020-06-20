@@ -105,6 +105,7 @@ fn hash_object(args: &mut Args) -> Res<String> {
 fn ls_tree(args: &mut Args) -> Res<String> {
     fn parse_tree_content(content: &Vec<u8>) -> Res<&str> {
         let mut parts = content.split(|byte| *byte == 0);
+        parts.next().unwrap(); // skip header "tree <byte size>"
         let header = str::from_utf8(parts.next().unwrap())?;
         Ok(header)
     }
