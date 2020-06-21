@@ -107,7 +107,7 @@ fn ls_tree(args: &mut Args) -> Res<String> {
 }
 
 fn write_tree() -> Res<String> {
-    fn foo(entry: DirEntry) -> Res<Vec<u8>> {
+    fn render_entry(entry: DirEntry) -> Res<Vec<u8>> {
         let _type = entry.file_type()?;
         if _type.is_file() {
             let mode_and_name = format!("100644 {}\x00", entry.file_name().to_string_lossy());
@@ -117,22 +117,31 @@ fn write_tree() -> Res<String> {
             row.extend_from_slice(&sha);
             Ok(row)
         } else if _type.is_dir() {
-            Ok(Vec::new())
+            let mode_and_name = format!("040000 {}\x00", entry.file_name().to_string_lossy());
+            let sha = write_tree(&entry.path())?;
+            let mut row = Vec::from(mode_and_name.as_bytes());
+            row.extend_from_slice(&sha);
+            Ok(row)
         } else {
             Err(format!("Symbolic links ('{}') are not supported.", entry.file_name().to_string_lossy()).into())
         }
     }
 
-    let tree_entries = fs::read_dir(".")?
-        .map(chain(foo))
-        .collect::<Result<Vec<_>, _>>()?
-        .concat();
-    let header = format!("tree {}\x00", tree_entries.len());
-    let content = [Vec::from(header.as_bytes()), tree_entries].concat();
-    let sha = print_sha(&Sha1::digest(&content));
-    let out_file = create_object(&sha)?;
-    write_object(out_file, &content)?;
-    Ok(sha)
+    fn write_tree(path: &Path) -> Res<[u8; 20]> {
+        let tree_entries = fs::read_dir(path)?
+            .map(chain(render_entry))
+            .collect::<Result<Vec<_>, _>>()?
+            .concat();
+        let header = format!("tree {}\x00", tree_entries.len());
+        let content = [Vec::from(header.as_bytes()), tree_entries].concat();
+        let sha = Sha1::digest(&content);
+        let out_file = create_object(&print_sha(&sha))?;
+        write_object(out_file, &content)?;
+        Ok(sha.into())
+    }
+
+    let sha = write_tree(Path::new("."))?;
+    Ok(print_sha(&sha))
 }
 
 // helper functions
