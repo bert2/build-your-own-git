@@ -117,9 +117,17 @@ fn ls_tree(args: &mut Args) -> Res<String> {
             })
         }
 
+        fn get_name(entry: Result<&str, str::Utf8Error>) -> Res<&str> {
+            entry?.split(' ')
+                .skip(1) // skip mode
+                .next()  // get name
+                .ok_or(format!("Unable to parse tree entry '{}'", entry.unwrap()).into())
+        }
+
         let entries = iterate_tree(content)
             .skip(1)    // skip header "tree <byte size>"
             .map(str::from_utf8)
+            .map(get_name)
             .collect::<Result<Vec<_>, _>>()?;
         Ok(entries)
     }
