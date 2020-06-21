@@ -107,7 +107,7 @@ fn ls_tree(args: &mut Args) -> Res<String> {
 }
 
 fn write_tree() -> Res<String> {
-    fn render_entry(entry: DirEntry) -> Res<Vec<u8>> {
+    fn render_entry(entry: &DirEntry) -> Res<Vec<u8>> {
         let _type = entry.file_type()?;
         if _type.is_file() {
             let mode_and_name = format!("100644 {}\x00", entry.file_name().to_string_lossy());
@@ -128,10 +128,11 @@ fn write_tree() -> Res<String> {
     }
 
     fn write_tree(path: &Path) -> Res<[u8; 20]> {
-        let tree_entries = fs::read_dir(path)?
-            .filter_map(Result::ok)
+        let mut dir_entries = fs::read_dir(path)?.collect::<Result<Vec<_>, _>>()?;
+        dir_entries.sort_by_key(|e| e.file_name().to_string_lossy().to_string());
+        let tree_entries = dir_entries.iter()
             .filter(|e| e.file_name().to_string_lossy() != ".git")
-            .map(render_entry)
+            .map(|e| render_entry(e))
             .collect::<Result<Vec<_>, _>>()?
             .concat();
         let header = format!("tree {}\x00", tree_entries.len());
