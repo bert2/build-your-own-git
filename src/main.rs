@@ -108,31 +108,39 @@ fn ls_tree(args: &mut Args) -> Res<String> {
 
 fn write_tree() -> Res<String> {
     fn render_entry(entry: &DirEntry) -> Res<Vec<u8>> {
-        let _type = entry.file_type()?;
-        if _type.is_file() {
-            let mode_and_name = format!("100644 {}\x00", entry.file_name().to_string_lossy());
+        fn render_file(entry: &DirEntry) -> Res<Vec<u8>> {
+            let mode_and_name = format!("100644 {}\x00", name(entry));
             let content = create_blob_from_file(&entry.path())?;
             let sha = Sha1::digest(&content.as_bytes());
             let mut row = Vec::from(mode_and_name.as_bytes());
             row.extend_from_slice(&sha);
             Ok(row)
-        } else if _type.is_dir() {
-            let mode_and_name = format!("040000 {}\x00", entry.file_name().to_string_lossy());
+        }
+
+        fn render_dir(entry: &DirEntry) -> Res<Vec<u8>> {
+            let mode_and_name = format!("040000 {}\x00", name(entry));
             let sha = write_tree(&entry.path())?;
             let mut row = Vec::from(mode_and_name.as_bytes());
             row.extend_from_slice(&sha);
             Ok(row)
+        }
+
+        let _type = entry.file_type()?;
+        if _type.is_file() {
+            render_file(entry)
+        } else if _type.is_dir() {
+            render_dir(entry)
         } else {
-            Err(format!("Symbolic links ('{}') are not supported.", entry.file_name().to_string_lossy()).into())
+            Err(format!("Symbolic links ('{}') are not supported.", name(entry)).into())
         }
     }
 
     fn write_tree(path: &Path) -> Res<[u8; 20]> {
         let mut dir_entries = fs::read_dir(path)?.collect::<Result<Vec<_>, _>>()?;
-        dir_entries.sort_by_key(|e| e.file_name().to_string_lossy().to_string());
+        dir_entries.sort_by_key(name);
         let tree_entries = dir_entries.iter()
-            .filter(|e| e.file_name().to_string_lossy() != ".git")
-            .map(|e| render_entry(e))
+            .filter(|e| name(e) != ".git")
+            .map(render_entry)
             .collect::<Result<Vec<_>, _>>()?
             .concat();
         let header = format!("tree {}\x00", tree_entries.len());
@@ -219,4 +227,8 @@ fn write_object(object: fs::File, content: &[u8]) -> Res<()> {
     let mut encoder = ZlibEncoder::new(object, Compression::default());
     encoder.write(content)?;
     Ok(())
+}
+
+fn name(entry: &DirEntry) -> String {
+    entry.file_name().to_string_lossy().to_string()
 }
