@@ -1,4 +1,4 @@
-use std::{env, env::Args, fs, io::prelude::*, iter, str};
+use std::{env, env::Args, fs, fs::DirEntry, io::prelude::*, iter, path::Path, str};
 use flate2::{read::ZlibDecoder, write::ZlibEncoder, Compression};
 use sha1::{Sha1, Digest};
 
@@ -59,47 +59,12 @@ fn cat_file(args: &mut Args) -> Res<String> {
 }
 
 fn hash_object(args: &mut Args) -> Res<String> {
-    fn create_content_from_file(file: &str) -> Res<String> {
-        let mut data = String::new();
-        fs::File::open(file)?.read_to_string(&mut data)
-            .map_err(|e| format!("Failed to read file '{}'. {}", file, e))?;
-        let header = format!("blob {}", &data.len());
-        let content = format!("{}\x00{}", header, data);
-        Ok(content)
-    }
-
-    fn compute_sha(content: &str) -> Res<String> {
-        let sha =  Sha1::digest(content.as_bytes()).iter()
-            .map(|byte| format!("{:02x}", byte))
-            .fold(String::new(), |sha, hex| sha + &hex);
-        if sha.len() != 40 {
-            Err(format!("Generated SHA '{}' is invalid.", sha).into())
-        } else {
-            Ok(sha)
-        }
-    }
-
-    fn create_object(sha: &str) -> Res<fs::File> {
-        let (dir, filename) = sha.split_at(2);
-        fs::create_dir_all(["./.git/objects/", dir].concat())?;
-        let path = ["./.git/objects/", dir, "/", filename].concat();
-        let file = fs::File::create(&path)
-            .map_err(|e| format!("Failed to create object '{}'. {}", path, e))?;
-        Ok(file)
-    }
-
-    fn write_object(object: fs::File, content: &str) -> Res<()> {
-        let mut encoder = ZlibEncoder::new(object, Compression::default());
-        encoder.write(content.as_bytes())?;
-        Ok(())
-    }
-
     expect_arg_flag(args, "-w")?;
     let in_file = args.next().ok_or("Missing file argument.")?;
-    let content = create_content_from_file(&in_file)?;
-    let sha = compute_sha(&content)?;
+    let content = create_blob_from_file(Path::new(&in_file))?;
+    let sha = print_sha(&Sha1::digest(content.as_bytes()));
     let out_file = create_object(&sha)?;
-    write_object(out_file, &content)?;
+    write_object(out_file, content.as_bytes())?;
     Ok(sha)
 }
 
@@ -142,7 +107,32 @@ fn ls_tree(args: &mut Args) -> Res<String> {
 }
 
 fn write_tree() -> Res<String> {
-    Ok("test".to_string())
+    fn foo(entry: DirEntry) -> Res<Vec<u8>> {
+        let _type = entry.file_type()?;
+        if _type.is_file() {
+            let mode_and_name = format!("100644 {}\x00", entry.file_name().to_string_lossy());
+            let content = create_blob_from_file(&entry.path())?;
+            let sha = Sha1::digest(&content.as_bytes());
+            let mut row = Vec::from(mode_and_name.as_bytes());
+            row.extend_from_slice(&sha);
+            Ok(row)
+        } else if _type.is_dir() {
+            Ok(Vec::new())
+        } else {
+            Err(format!("Symbolic links ('{}') are not supported.", entry.file_name().to_string_lossy()).into())
+        }
+    }
+
+    let tree_entries = fs::read_dir(".")?
+        .map(chain(foo))
+        .collect::<Result<Vec<_>, _>>()?
+        .concat();
+    let header = format!("tree {}\x00", tree_entries.len());
+    let content = [Vec::from(header.as_bytes()), tree_entries].concat();
+    let sha = print_sha(&content);
+    let out_file = create_object(&sha)?;
+    write_object(out_file, &content)?;
+    Ok(sha)
 }
 
 // helper functions
@@ -187,6 +177,36 @@ fn decompress_binary(file: fs::File) -> Res<Vec<u8>> {
     decoder.read_to_end(&mut decompressed)
         .map_err(|e| format!("Unable to decompress binary file. {}", e))?;
     Ok(decompressed)
+}
+
+fn create_blob_from_file(file: &Path) -> Res<String> {
+    let mut data = String::new();
+    fs::File::open(file)?.read_to_string(&mut data)
+        .map_err(|e| format!("Failed to read file '{:?}'. {}", file, e))?;
+    let header = format!("blob {}", &data.len());
+    let content = format!("{}\x00{}", header, data);
+    Ok(content)
+}
+
+fn print_sha(sha: &[u8]) -> String {
+    sha.iter()
+        .map(|byte| format!("{:02x}", byte))
+        .fold(String::new(), |sha, hex| sha + &hex)
+}
+
+fn create_object(sha: &str) -> Res<fs::File> {
+    let (dir, filename) = sha.split_at(2);
+    fs::create_dir_all(["./.git/objects/", dir].concat())?;
+    let path = ["./.git/objects/", dir, "/", filename].concat();
+    let file = fs::File::create(&path)
+        .map_err(|e| format!("Failed to create object '{}'. {}", path, e))?;
+    Ok(file)
+}
+
+fn write_object(object: fs::File, content: &[u8]) -> Res<()> {
+    let mut encoder = ZlibEncoder::new(object, Compression::default());
+    encoder.write(content)?;
+    Ok(())
 }
 
 fn chain<A, B, EA, EB, F>(f: F) -> impl Fn(Result<A, EA>) -> Result<B, EB>
