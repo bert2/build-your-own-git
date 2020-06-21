@@ -1,4 +1,4 @@
-use std::{env, env::Args, fs, io::prelude::*, str};
+use std::{env, env::Args, fs, io::prelude::*, iter, str};
 use flate2::{read::ZlibDecoder, write::ZlibEncoder, Compression};
 use sha1::{Sha1, Digest};
 
@@ -103,21 +103,25 @@ fn hash_object(args: &mut Args) -> Res<String> {
 }
 
 fn ls_tree(args: &mut Args) -> Res<String> {
-    fn parse_tree_content(content: &Vec<u8>) -> Res<String> {//Res<Vec<&str>> {
-        Ok(content.iter()
-            .map(|&byte| if byte < 128 { format!("{}", byte as char) } else { format!("{:02x}", byte) })
-            .collect::<Vec<String>>()
-            .concat())
-        // let entries = content.split(|&byte| byte == 0)
-        //     //.skip(1)    // skip header "tree <byte size>"
-        //     //.step_by(2) // skip SHAs
-        //     //.map(str::from_utf8)
-        //     .map(|bytes| bytes.iter()
-        //         .map(|byte| format!("{:02x}", byte))
-        //         .fold(String::new(), |sha, hex| sha + &hex))
-        //     //.collect::<Result<Vec<_>, _>>()?;
-        //     .collect::<Vec<String>>();
-        // Ok(entries)
+    fn parse_tree_content(content: &Vec<u8>) -> Res<Vec<&str>> {
+        fn iterate_tree(bytes: &Vec<u8>) -> impl Iterator<Item = &[u8]> {
+            let mut bytes = bytes.as_slice();
+            let mut sha_len = 0; // header has no SHA
+
+            iter::from_fn(move || {
+                let utf8_end = bytes.iter().position(|&x| x == 0)?;
+                let next = &bytes[..utf8_end];
+                bytes = &bytes[utf8_end + 1 + sha_len ..];
+                sha_len = 20; // skip 20 byte SHA of subsequent entries
+                Some(next)
+            })
+        }
+
+        let entries = iterate_tree(content)
+            .skip(1)    // skip header "tree <byte size>"
+            .map(str::from_utf8)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(entries)
     }
 
     expect_arg_flag(args, "--name-only")?;
@@ -125,7 +129,7 @@ fn ls_tree(args: &mut Args) -> Res<String> {
     let file = open_object(&sha)?;
     let decompressed = decompress_binary(file)?;
     let data = parse_tree_content(&decompressed)?;
-    Ok(data)
+    Ok(data.join("\n"))
 }
 
 // helper functions
