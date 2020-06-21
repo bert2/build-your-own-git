@@ -129,7 +129,7 @@ fn write_tree() -> Res<String> {
         .concat();
     let header = format!("tree {}\x00", tree_entries.len());
     let content = [Vec::from(header.as_bytes()), tree_entries].concat();
-    let sha = print_sha(&content);
+    let sha = print_sha(&Sha1::digest(&content));
     let out_file = create_object(&sha)?;
     write_object(out_file, &content)?;
     Ok(sha)
