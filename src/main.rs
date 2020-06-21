@@ -93,7 +93,7 @@ fn ls_tree(args: &mut Args) -> Res<String> {
         let entries = iterate_tree(content)
             .skip(1) // skip header "tree <byte size>"
             .map(str::from_utf8)
-            .map(chain(get_name))
+            .map(|x| x.map(get_name)?)
             .collect::<Result<Vec<_>, _>>()?;
         Ok(entries)
     }
@@ -129,7 +129,9 @@ fn write_tree() -> Res<String> {
 
     fn write_tree(path: &Path) -> Res<[u8; 20]> {
         let tree_entries = fs::read_dir(path)?
-            .map(chain(render_entry))
+            .filter_map(Result::ok)
+            .filter(|e| e.file_name().to_string_lossy() != ".git")
+            .map(render_entry)
             .collect::<Result<Vec<_>, _>>()?
             .concat();
         let header = format!("tree {}\x00", tree_entries.len());
@@ -191,7 +193,7 @@ fn decompress_binary(file: fs::File) -> Res<Vec<u8>> {
 fn create_blob_from_file(file: &Path) -> Res<String> {
     let mut data = String::new();
     fs::File::open(file)?.read_to_string(&mut data)
-        .map_err(|e| format!("Failed to read file '{:?}'. {}", file, e))?;
+        .map_err(|e| format!("Failed to read file '{}': {}.", file.to_string_lossy(), e))?;
     let header = format!("blob {}", &data.len());
     let content = format!("{}\x00{}", header, data);
     Ok(content)
@@ -216,10 +218,4 @@ fn write_object(object: fs::File, content: &[u8]) -> Res<()> {
     let mut encoder = ZlibEncoder::new(object, Compression::default());
     encoder.write(content)?;
     Ok(())
-}
-
-fn chain<A, B, EA, EB, F>(f: F) -> impl Fn(Result<A, EA>) -> Result<B, EB>
-where F: Fn(A) -> Result<B, EB>,
-      EB: From<EA> {
-    move |x| f(x?)
 }
