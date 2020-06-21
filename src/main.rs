@@ -117,17 +117,17 @@ fn ls_tree(args: &mut Args) -> Res<String> {
             })
         }
 
-        fn get_name(entry: Result<&str, str::Utf8Error>) -> Res<&str> {
-            entry?.split(' ')
+        fn get_name(entry: &str) -> Res<&str> {
+            entry.split(' ')
                 .skip(1) // skip mode
                 .next()  // get name
-                .ok_or(format!("Unable to parse tree entry '{}'", entry.unwrap()).into())
+                .ok_or(format!("Unable to parse tree entry '{}'", entry).into())
         }
 
         let entries = iterate_tree(content)
-            .skip(1)    // skip header "tree <byte size>"
+            .skip(1) // skip header "tree <byte size>"
             .map(str::from_utf8)
-            .map(get_name)
+            .map(chain(get_name))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(entries)
     }
@@ -182,4 +182,10 @@ fn decompress_binary(file: fs::File) -> Res<Vec<u8>> {
     decoder.read_to_end(&mut decompressed)
         .map_err(|e| format!("Unable to decompress binary file. {}", e))?;
     Ok(decompressed)
+}
+
+fn chain<A, B, EA, EB, F>(f: F) -> impl Fn(Result<A, EA>) -> Result<B, EB>
+where F: Fn(A) -> Result<B, EB>,
+      EB: From<EA> {
+    move |x| f(x?)
 }
