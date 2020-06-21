@@ -137,7 +137,7 @@ fn ls_tree(args: &mut Args) -> Res<String> {
     let file = open_object(&sha)?;
     let decompressed = decompress_binary(file)?;
     let data = parse_tree_content(&decompressed)?;
-    Ok(data.join("\n"))
+    Ok(data.join("\n") + "\n")
 }
 
 // helper functions
