@@ -12,6 +12,7 @@ fn main() {
             "hash-object" => hash_object(args),
             "init"        => init(),
             "ls-tree"     => ls_tree(args),
+            "write-tree"  => write_tree(),
             _ => Err(format!("Unknown command '{}'.", cmd).into())
         }
     }
@@ -138,6 +139,10 @@ fn ls_tree(args: &mut Args) -> Res<String> {
     let decompressed = decompress_binary(file)?;
     let data = parse_tree_content(&decompressed)?;
     Ok(data.join("\n") + "\n")
+}
+
+fn write_tree() -> Res<String> {
+    Ok("test".to_string())
 }
 
 // helper functions
