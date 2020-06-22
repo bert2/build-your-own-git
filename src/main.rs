@@ -62,10 +62,10 @@ fn commit_tree(args: &mut Args) -> Res<String> {
     let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
     let committer = format!("bert2 <shuairan@gmail.com> {} +0000", timestamp);
     let data = format!("tree {}\nparent {}\nauthor {}\ncommitter {}\n\n{}\n", tree, parent, committer, committer, msg);
-    let content = format!("commit {}\x00{}", data.len(), data).as_bytes();
-    let sha = print_sha(&Sha1::digest(content));
+    let content = format!("commit {}\x00{}", data.len(), data);
+    let sha = print_sha(&Sha1::digest(content.as_bytes()));
     let out_file = create_object(&sha)?;
-    write_object(out_file, content)?;
+    write_object(out_file, content.as_bytes())?;
     Ok(sha)
 }
 
@@ -178,7 +178,7 @@ fn write_tree() -> Res<String> {
 // helper functions
 
 fn parse_arg(args: &mut Args, info: &str) -> Res<String> {
-    args.next().ok_or(format!("Not enough arguments provided: missing {} argument.", info))
+    args.next().ok_or(format!("Not enough arguments provided: missing {} argument.", info).into())
 }
 
 fn parse_arg_named(args: &mut Args, name: &str) -> Res<String> {
@@ -186,7 +186,7 @@ fn parse_arg_named(args: &mut Args, name: &str) -> Res<String> {
         .ok_or(format!("Not enough arguments provided: missing '{}'.", name))?;
     if arg == name {
         args.next()
-            .ok_or(format!("Not enough arguments provided: missing value for '{}'.", name))
+            .ok_or(format!("Not enough arguments provided: missing value for '{}'.", name).into())
     } else {
         Err(format!("Expecting argument '{}'. Got '{}' instead.", name, arg).into())
     }
