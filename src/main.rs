@@ -9,6 +9,7 @@ fn main() {
         let cmd = args.next().ok_or("No command provided.")?;
         match cmd.as_str() {
             "cat-file"    => cat_file(args),
+            "commit-tree" => commit_tree(args),
             "hash-object" => hash_object(args),
             "init"        => init(),
             "ls-tree"     => ls_tree(args),
@@ -34,14 +35,6 @@ fn main() {
     std::process::exit(exit_code);
 }
 
-fn init() -> Res<String> {
-    fs::create_dir(".git")?;
-    fs::create_dir(".git/objects")?;
-    fs::create_dir(".git/refs")?;
-    fs::write(".git/HEAD", "ref: refs/heads/master\n")?;
-    Ok("Initialized git directory.".to_string())
-}
-
 fn cat_file(args: &mut Args) -> Res<String> {
     fn parse_blob_content<'a>(content: &'a String) -> Res<(&'a str, &'a str)> {
         let mut split = content.split('\x00');
@@ -58,6 +51,10 @@ fn cat_file(args: &mut Args) -> Res<String> {
     Ok(data.to_string())
 }
 
+fn commit_tree(_args: &mut Args) -> Res<String> {
+    Ok("foo".to_string())
+}
+
 fn hash_object(args: &mut Args) -> Res<String> {
     expect_arg_flag(args, "-w")?;
     let in_file = args.next().ok_or("Missing file argument.")?;
@@ -66,6 +63,14 @@ fn hash_object(args: &mut Args) -> Res<String> {
     let out_file = create_object(&sha)?;
     write_object(out_file, content.as_bytes())?;
     Ok(sha)
+}
+
+fn init() -> Res<String> {
+    fs::create_dir(".git")?;
+    fs::create_dir(".git/objects")?;
+    fs::create_dir(".git/refs")?;
+    fs::write(".git/HEAD", "ref: refs/heads/master\n")?;
+    Ok("Initialized git directory.".to_string())
 }
 
 fn ls_tree(args: &mut Args) -> Res<String> {
