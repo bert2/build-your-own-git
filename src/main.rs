@@ -1,4 +1,4 @@
-use std::{env, env::Args, fs, fs::DirEntry, io::prelude::*, iter, path::Path, str};
+use std::{env, env::Args, fs, fs::DirEntry, io::prelude::*, iter, path::Path, str, time::{SystemTime, UNIX_EPOCH}};
 use flate2::{read::ZlibDecoder, write::ZlibEncoder, Compression};
 use sha1::{Sha1, Digest};
 
@@ -43,21 +43,35 @@ fn cat_file(args: &mut Args) -> Res<String> {
         Ok((header, data))
     }
 
-    expect_arg_flag(args, "-p")?;
-    let sha = expect_arg_sha(args)?;
+    parse_arg_flag(args, "-p")?;
+    let sha = parse_arg(args, "SHA")?;
+    validate_sha(&sha)?;
     let file = open_object(&sha)?;
-    let decompressed = decompress_utf8(file)?;
+    let decompressed = inflate_utf8(file)?;
     let (_, data) = parse_blob_content(&decompressed)?;
     Ok(data.to_string())
 }
 
-fn commit_tree(_args: &mut Args) -> Res<String> {
-    Ok("foo".to_string())
+fn commit_tree(args: &mut Args) -> Res<String> {
+    let tree = parse_arg(args, "SHA")?;
+    validate_sha(&tree)?;
+    let parent = parse_arg_named(args, "-p")?;
+    validate_sha(&parent)?;
+    let msg = parse_arg_named(args, "-m")?;
+
+    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+    let committer = format!("bert2 <shuairan@gmail.com> {} +0000", timestamp);
+    let data = format!("tree {}\nparent {}\nauthor {}\ncommitter {}\n\n{}\n", tree, parent, committer, committer, msg);
+    let content = format!("commit {}\x00{}", data.len(), data).as_bytes();
+    let sha = print_sha(&Sha1::digest(content));
+    let out_file = create_object(&sha)?;
+    write_object(out_file, content)?;
+    Ok(sha)
 }
 
 fn hash_object(args: &mut Args) -> Res<String> {
-    expect_arg_flag(args, "-w")?;
-    let in_file = args.next().ok_or("Missing file argument.")?;
+    parse_arg_flag(args, "-w")?;
+    let in_file = parse_arg(args, "file")?;
     let content = create_blob_from_file(Path::new(&in_file))?;
     let sha = print_sha(&Sha1::digest(content.as_bytes()));
     let out_file = create_object(&sha)?;
@@ -103,10 +117,11 @@ fn ls_tree(args: &mut Args) -> Res<String> {
         Ok(entries)
     }
 
-    expect_arg_flag(args, "--name-only")?;
-    let sha = expect_arg_sha(args)?;
+    parse_arg_flag(args, "--name-only")?;
+    let sha = parse_arg(args, "SHA")?;
+    validate_sha(&sha)?;
     let file = open_object(&sha)?;
-    let decompressed = decompress_binary(file)?;
+    let decompressed = inflate_binary(file)?;
     let data = parse_tree_content(&decompressed)?;
     Ok(data.join("\n") + "\n")
 }
@@ -162,21 +177,35 @@ fn write_tree() -> Res<String> {
 
 // helper functions
 
-fn expect_arg_flag(args: &mut Args, flag: &str) -> Res<()> {
+fn parse_arg(args: &mut Args, info: &str) -> Res<String> {
+    args.next().ok_or(format!("Not enough arguments provided: missing {} argument.", info))
+}
+
+fn parse_arg_named(args: &mut Args, name: &str) -> Res<String> {
+    let arg = args.next()
+        .ok_or(format!("Not enough arguments provided: missing '{}'.", name))?;
+    if arg == name {
+        args.next()
+            .ok_or(format!("Not enough arguments provided: missing value for '{}'.", name))
+    } else {
+        Err(format!("Expecting argument '{}'. Got '{}' instead.", name, arg).into())
+    }
+}
+
+fn parse_arg_flag(args: &mut Args, flag: &str) -> Res<()> {
     let arg = args.next()
         .ok_or(format!("Not enough arguments provided: missing flag '{}'.", flag))?;
     if arg == flag {
         Ok(())
     } else {
-        Err(format!("Expecting flag '--{}'. Got '{}' instead.", flag, arg).into())
+        Err(format!("Expecting flag '{}'. Got '{}' instead.", flag, arg).into())
     }
 }
 
-fn expect_arg_sha(args: &mut Args) -> Res<String> {
-    let sha = args.next().ok_or("Missing SHA argument.")?;
+fn validate_sha(sha: &str) -> Res<()> {
     match sha.len() {
-        40 => Ok(sha),
-        _  => Err("Provided SHA does not have the required length of 40 characters.".into())
+        40 => Ok(()),
+        _  => Err("SHA does not have the required length of 40 characters.".into())
     }
 }
 
@@ -188,19 +217,19 @@ fn open_object(sha: &str) -> Res<fs::File> {
     Ok(file)
 }
 
-fn decompress_utf8(file: fs::File) -> Res<String> {
+fn inflate_utf8(file: fs::File) -> Res<String> {
     let mut decoder = ZlibDecoder::new(file);
     let mut decompressed = String::new();
     decoder.read_to_string(&mut decompressed)
-        .map_err(|e| format!("Unable to decompress file into `String`. {}", e))?;
+        .map_err(|e| format!("Unable to inflate file into `String`. {}", e))?;
     Ok(decompressed)
 }
 
-fn decompress_binary(file: fs::File) -> Res<Vec<u8>> {
+fn inflate_binary(file: fs::File) -> Res<Vec<u8>> {
     let mut decoder = ZlibDecoder::new(file);
     let mut decompressed = Vec::new();
     decoder.read_to_end(&mut decompressed)
-        .map_err(|e| format!("Unable to decompress binary file. {}", e))?;
+        .map_err(|e| format!("Unable to inflate binary file. {}", e))?;
     Ok(decompressed)
 }
 
