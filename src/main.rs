@@ -1,11 +1,11 @@
-use std::{env, env::Args, fs, fs::DirEntry, io::prelude::*, iter, path::Path, str, time::{SystemTime, UNIX_EPOCH}};
+use std::{env, env::Args, fs, fs::DirEntry, io::prelude::*, iter, iter::Peekable, path::Path, str, time::{SystemTime, UNIX_EPOCH}};
 use flate2::{read::ZlibDecoder, write::ZlibEncoder, Compression};
 use sha1::{Sha1, Digest};
 
 type Res<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 fn main() {
-    fn run(args: &mut Args) -> Res<String> {
+    fn run(args: &mut Peekable<Args>) -> Res<String> {
         let cmd = args.next().ok_or("No command provided.")?;
         match cmd.as_str() {
             "cat-file"    => cat_file(args),
@@ -18,7 +18,7 @@ fn main() {
         }
     }
 
-    let mut args = env::args();
+    let mut args = env::args().peekable();
     args.next(); // skip name of executable
 
     let exit_code = match run(&mut args) {
@@ -35,7 +35,7 @@ fn main() {
     std::process::exit(exit_code);
 }
 
-fn cat_file(args: &mut Args) -> Res<String> {
+fn cat_file(args: &mut Peekable<Args>) -> Res<String> {
     fn parse_blob_content<'a>(content: &'a String) -> Res<(&'a str, &'a str)> {
         let mut split = content.split('\x00');
         let header = split.next().unwrap();
@@ -52,16 +52,17 @@ fn cat_file(args: &mut Args) -> Res<String> {
     Ok(data.to_string())
 }
 
-fn commit_tree(args: &mut Args) -> Res<String> {
+fn commit_tree(args: &mut Peekable<Args>) -> Res<String> {
     let tree = parse_arg(args, "SHA")?;
     validate_sha(&tree)?;
-    let parent = parse_arg_named(args, "-p")?;
-    validate_sha(&parent)?;
+    let parent = parse_opt_arg_named(args, "-p")?;
+    if parent.is_some() { validate_sha(&parent.clone().unwrap())?; }
     let msg = parse_arg_named(args, "-m")?;
 
     let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
     let committer = format!("bert2 <shuairan@gmail.com> {} +0000", timestamp);
-    let data = format!("tree {}\nparent {}\nauthor {}\ncommitter {}\n\n{}\n", tree, parent, committer, committer, msg);
+    let parent = parent.map(|p| format!("parent {}\n", p)).unwrap_or(String::new());
+    let data = format!("tree {}\n{}author {}\ncommitter {}\n\n{}\n", tree, parent, committer, committer, msg);
     let content = format!("commit {}\x00{}", data.len(), data);
     let sha = print_sha(&Sha1::digest(content.as_bytes()));
     let out_file = create_object(&sha)?;
@@ -69,7 +70,7 @@ fn commit_tree(args: &mut Args) -> Res<String> {
     Ok(sha)
 }
 
-fn hash_object(args: &mut Args) -> Res<String> {
+fn hash_object(args: &mut Peekable<Args>) -> Res<String> {
     parse_arg_flag(args, "-w")?;
     let in_file = parse_arg(args, "file")?;
     let content = create_blob_from_file(Path::new(&in_file))?;
@@ -87,7 +88,7 @@ fn init() -> Res<String> {
     Ok("Initialized git directory.".to_string())
 }
 
-fn ls_tree(args: &mut Args) -> Res<String> {
+fn ls_tree(args: &mut Peekable<Args>) -> Res<String> {
     fn parse_tree_content(content: &Vec<u8>) -> Res<Vec<&str>> {
         fn iterate_tree(bytes: &Vec<u8>) -> impl Iterator<Item = &[u8]> {
             let mut bytes = bytes.as_slice();
@@ -177,11 +178,11 @@ fn write_tree() -> Res<String> {
 
 // helper functions
 
-fn parse_arg(args: &mut Args, info: &str) -> Res<String> {
+fn parse_arg(args: &mut Peekable<Args>, info: &str) -> Res<String> {
     args.next().ok_or(format!("Not enough arguments provided: missing {} argument.", info).into())
 }
 
-fn parse_arg_named(args: &mut Args, name: &str) -> Res<String> {
+fn parse_arg_named(args: &mut Peekable<Args>, name: &str) -> Res<String> {
     let arg = args.next()
         .ok_or(format!("Not enough arguments provided: missing '{}'.", name))?;
     if arg == name {
@@ -192,7 +193,19 @@ fn parse_arg_named(args: &mut Args, name: &str) -> Res<String> {
     }
 }
 
-fn parse_arg_flag(args: &mut Args, flag: &str) -> Res<()> {
+fn parse_opt_arg_named(args: &mut Peekable<Args>, name: &str) -> Res<Option<String>> {
+    match args.peek() {
+        Some(arg) if arg == name => {
+            args.next(); // discard peeked arg name
+            let value = args.next()
+                .ok_or(format!("Not enough arguments provided: missing value for '{}'.", name))?;
+            Ok(Some(value))
+        },
+        _ => Ok(None)
+    }
+}
+
+fn parse_arg_flag(args: &mut Peekable<Args>, flag: &str) -> Res<()> {
     let arg = args.next()
         .ok_or(format!("Not enough arguments provided: missing flag '{}'.", flag))?;
     if arg == flag {
