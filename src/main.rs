@@ -32,7 +32,6 @@ fn main() {
 
     let mut args = env::args().peekable();
     args.next(); // skip name of executable
-
     let exit_code = match run(&mut args) {
         Ok(msg) => {
             print!("{}", msg);
@@ -50,7 +49,7 @@ fn main() {
 // commands
 
 fn cat_file(args: &mut Peekable<Args>) -> R<String> {
-    fn parse_blob_content<'a>(content: &'a String) -> R<(&'a str, &'a str)> {
+    fn parse_blob_content<'a>(content: &'a str) -> R<(&'a str, &'a str)> {
         let mut split = content.split('\x00');
         let header = split.next().unwrap();
         let data = split.next().ok_or("Content of blob object could not be parsed.")?;
@@ -70,7 +69,7 @@ fn commit_tree(args: &mut Peekable<Args>) -> R<String> {
     let tree = parse_arg(args, "SHA")?;
     validate_sha(&tree)?;
     let parent = parse_opt_arg_named(args, "-p")?;
-    if parent.is_some() { validate_sha(&parent.clone().unwrap())?; }
+    if let Some(p) = parent.as_ref() { validate_sha(p)?; }
     let msg = parse_arg_named(args, "-m")?;
 
     let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
@@ -103,13 +102,13 @@ fn init() -> R<String> {
 }
 
 fn ls_tree(args: &mut Peekable<Args>) -> R<String> {
-    fn parse_tree_content(content: &Vec<u8>) -> R<Vec<&str>> {
-        fn iterate_tree(bytes: &Vec<u8>) -> impl Iterator<Item = &[u8]> {
-            let mut bytes = bytes.as_slice();
+    fn parse_tree_content(content: &[u8]) -> R<Vec<&str>> {
+        fn iterate_tree(bytes: &[u8]) -> impl Iterator<Item = &[u8]> {
+            let mut bytes = bytes;
             let mut sha_len = 0; // header has no SHA
 
             iter::from_fn(move || {
-                let utf8_end = bytes.iter().position(|&x| x == 0)?;
+                let utf8_end = bytes.iter().position(|&b| b == 0)?;
                 let next = &bytes[..utf8_end];
                 bytes = &bytes[utf8_end + 1 + sha_len ..];
                 sha_len = 20; // skip 20 byte SHA of subsequent entries
@@ -127,7 +126,7 @@ fn ls_tree(args: &mut Peekable<Args>) -> R<String> {
         let entries = iterate_tree(content)
             .skip(1) // skip header "tree <byte size>"
             .map(str::from_utf8)
-            .map(|x| x.map(get_name)?)
+            .flat_map(|x| x.map(get_name))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(entries)
     }
