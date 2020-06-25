@@ -10,7 +10,7 @@ use std::{
 };
 use bytes::Bytes;
 use flate2::{read::ZlibDecoder, write::ZlibEncoder, Compression};
-use reqwest::blocking::Client;
+use reqwest::blocking as http;
 use sha1::{Sha1, Digest};
 
 type R<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -103,17 +103,20 @@ fn init() -> R<String> {
 
 fn ls_tree(args: &mut Peekable<Args>) -> R<String> {
     fn parse_tree_content(content: &[u8]) -> R<Vec<&str>> {
-        fn iterate_tree(bytes: &[u8]) -> impl Iterator<Item = &[u8]> {
-            let mut bytes = bytes;
-            let mut sha_len = 0; // header has no SHA
+        fn iterate_tree(bytes: &[u8]) -> R<impl Iterator<Item = &[u8]>> {
+            let mut parts = bytes.splitn(2, |&b| b == 0);
+            parts.next()
+                .filter(|&header| header.starts_with(b"tree "))
+                .ok_or("Object is not a tree.")?;
+            let mut entries = parts.next().ok_or("Failed to parse tree object: no entries found.")?;
+            let sha_len = 20;
 
-            iter::from_fn(move || {
-                let utf8_end = bytes.iter().position(|&b| b == 0)?;
-                let next = &bytes[..utf8_end];
-                bytes = &bytes[utf8_end + 1 + sha_len ..];
-                sha_len = 20; // skip 20 byte SHA of subsequent entries
+            Ok(iter::from_fn(move || {
+                let utf8_end = entries.iter().position(|&b| b == 0)?;
+                let next = &entries[..utf8_end];
+                entries = &entries[utf8_end + 1 + sha_len ..];
                 Some(next)
-            })
+            }))
         }
 
         fn get_name(entry: &str) -> R<&str> {
@@ -123,11 +126,10 @@ fn ls_tree(args: &mut Peekable<Args>) -> R<String> {
                 .ok_or(format!("Unable to parse tree entry '{}'", entry).into())
         }
 
-        let entries = iterate_tree(content)
-            .skip(1) // skip header "tree <byte size>"
+        let entries = iterate_tree(content)?
             .map(str::from_utf8)
             .flat_map(|x| x.map(get_name))
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<R<Vec<_>>>()?;
         Ok(entries)
     }
 
@@ -149,7 +151,7 @@ fn ls_remote(args: &mut Peekable<Args>) -> R<String> {
             let len = usize::from_str_radix(len, 16).expect("Failed to parse pkt-len.");
             let pkt_line = match len {
                 0 => String::new(),
-                _ => str::from_utf8(&bytes[4..len]).unwrap().to_string()
+                _ => str::from_utf8(&bytes[4..len]).expect("Failed to parse pkt-line.").to_string()
             };
 
             bytes = bytes.slice(max(len, 4)..);
@@ -166,22 +168,17 @@ fn ls_remote(args: &mut Peekable<Args>) -> R<String> {
         Ok((id.to_string(), name.to_string()))
     }
 
-    fn print_ref(_ref: R<(String, String)>) -> R<String> {
-        _ref.map(|(id,name)| format!("{}\t{}", id, name))
-    };
-
     parse_arg_flag(args, "--refs")?;
     let url = parse_arg(args, "repository URL")?;
-    let url = [url.as_str(), "/info/refs?service=git-receive-pack"].concat();
+    let url = format!("{}/info/refs?service=git-receive-pack", url.trim_end_matches('/'));
 
-    let http = Client::new();
-    let bytes = http.get(&url).send()?.bytes()?;
+    let bytes = http::get(&url)?.bytes()?;
 
     let refs = pkt_lines(bytes)
         .skip(2) // skip command & flush-pkt
         .take_while(|pkt_line| pkt_line != "")
         .map(parse_ref)
-        .map(print_ref)
+        .map(|r| r.map(|(id,name)| format!("{}\t{}", id, name)))
         .collect::<R<Vec<_>>>()?
         .join("\n");
 
@@ -194,7 +191,7 @@ fn write_tree() -> R<String> {
             let mode_and_name = format!("100644 {}\x00", name(entry));
             let content = create_blob_from_file(&entry.path())?;
             let sha = Sha1::digest(&content.as_bytes());
-            let mut row = Vec::from(mode_and_name.as_bytes());
+            let mut row = mode_and_name.into_bytes();
             row.extend_from_slice(&sha);
             Ok(row)
         }
@@ -202,7 +199,7 @@ fn write_tree() -> R<String> {
         fn render_dir(entry: &DirEntry) -> R<Vec<u8>> {
             let mode_and_name = format!("040000 {}\x00", name(entry));
             let sha = write_tree(&entry.path())?;
-            let mut row = Vec::from(mode_and_name.as_bytes());
+            let mut row = mode_and_name.into_bytes();
             row.extend_from_slice(&sha);
             Ok(row)
         }
@@ -223,10 +220,10 @@ fn write_tree() -> R<String> {
         let tree_entries = dir_entries.iter()
             .filter(|e| name(e) != ".git")
             .map(render_entry)
-            .collect::<Result<Vec<_>, _>>()?
+            .collect::<R<Vec<_>>>()?
             .concat();
-        let header = format!("tree {}\x00", tree_entries.len());
-        let content = [Vec::from(header.as_bytes()), tree_entries].concat();
+        let mut content = format!("tree {}\x00", tree_entries.len()).into_bytes();
+        content.extend(tree_entries);
         let sha = Sha1::digest(&content);
         let out_file = create_object(&print_sha(&sha))?;
         write_object(out_file, &content)?;
@@ -319,7 +316,8 @@ fn create_blob_from_file(file: &Path) -> R<String> {
 fn print_sha(sha: &[u8]) -> String {
     sha.iter()
         .map(|byte| format!("{:02x}", byte))
-        .fold(String::new(), |sha, hex| sha + &hex)
+        .collect::<Vec<_>>()
+        .concat()
 }
 
 fn create_object(sha: &str) -> R<fs::File> {
@@ -338,5 +336,5 @@ fn write_object(object: fs::File, content: &[u8]) -> R<()> {
 }
 
 fn name(entry: &DirEntry) -> String {
-    entry.file_name().to_string_lossy().to_string()
+    entry.file_name().to_string_lossy().into_owned()
 }
