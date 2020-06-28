@@ -100,20 +100,8 @@ fn checkout(args: &mut Peekable<Args>) -> R<String> {
     let commit = arg::unnamed(args, "commit id")?;
     sha::validate(&commit)?;
     let git_dir = Path::new("./.git");
-    let target_dir = git_dir.parent()
-        .ok_or(format!("Reached file system root while trying to get parent of {:?}.", git_dir))?;
-
-    let obj = obj::read_gen(git_dir, &commit)?;
-
-    match obj {
-        Obj::Commit { tree: t } => {
-            println!("Checking out tree {}", t);
-            wtree::clear(git_dir)?;
-            wtree::checkout_tree(git_dir, target_dir, &t)?;
-            Ok(format!("HEAD is now at {}.", commit))
-        },
-        _ => Err(format!("Object {} is not a commit.", commit).into())
-    }
+    wtree::checkout_commit(git_dir, &commit)?;
+    Ok(format!("HEAD is now at {}.", commit))
 }
 
 fn clone(args: &mut Peekable<Args>) -> R<String> {
@@ -176,6 +164,7 @@ fn clone(args: &mut Peekable<Args>) -> R<String> {
     }
 
     println!("Checking out HEAD {}...", head.name);
+    wtree::checkout_commit(&git_dir, &head.id)?;
 
     Ok(String::from("done"))
 }

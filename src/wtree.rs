@@ -18,6 +18,21 @@ pub fn clear(git_dir: & Path) -> R<()> {
     Ok(())
 }
 
+pub fn checkout_commit(git_dir: &Path, id: &str) -> R<()> {
+    let obj = obj::read_gen(git_dir, &id)?;
+    let target_dir = git_dir.parent()
+        .ok_or(format!("Reached file system root while trying to get parent of {:?}.", git_dir))?;
+
+    match obj {
+        Obj::Commit { tree: t } => {
+            println!("Checking out tree {}", t);
+            clear(git_dir)?;
+            checkout_tree(git_dir, target_dir, &t)
+        },
+        _ => Err(format!("Object {} is not a commit.", id).into())
+    }
+}
+
 pub fn checkout_tree(git_dir: &Path, parent: &Path, id: &str) -> R<()> {
     fs::create_dir_all(parent)?;
 
