@@ -26,12 +26,12 @@ pub struct TreeEntry {
 }
 
 impl TreeEntry {
-    fn print_type(&self) -> R<&'static str> {
+    pub fn print_type(&self) -> &'static str {
         match self.mode {
-            040000 => Ok("tree"),
+            040000 => "tree",
             100644 |
-            100755 => Ok("blob"),
-            mode   => Err(format!("Unsupported file mode: {}", mode).into())
+            100755 => "blob",
+            mode   => panic!("Unsupported file mode: {}", mode)
         }
     }
 }
@@ -120,28 +120,22 @@ pub fn read_gen(git_dir: &Path, id: &str) -> R<Obj> {
     }
 }
 
-pub fn print(obj: &Obj) -> R<String> {
+pub fn print(obj: &Obj) -> String {
     fn print_commit(tree: &str) -> String {
         format!("tree {}\n", tree)
     }
 
-    fn print_tree(entries: &Vec<TreeEntry>) -> R<String> {
-        fn print_entry(e: &TreeEntry) -> R<String> {
-            Ok(format!("{:06} {} {}    {}", e.mode, e.print_type()?, e.id, e.name))
-        }
-
-        let lines = entries.iter()
-            .map(print_entry)
-            .collect::<R<Vec<_>>>()?
-            .join("\n");
-
-        Ok(lines)
+    fn print_tree(entries: &Vec<TreeEntry>) -> String {
+        entries.iter()
+            .map(|e| format!("{:06} {} {}    {}", e.mode, e.print_type(), e.id, e.name))
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     match obj {
-        Obj::Blob { content } => Ok(String::from_utf8_lossy(&content).to_string()),
-        Obj::Commit { tree }  => Ok(print_commit(tree)),
-        Obj::Tree { entries } => Ok(print_tree(&entries)?)
+        Obj::Blob { content } => String::from_utf8_lossy(&content).to_string(),
+        Obj::Commit { tree }  => print_commit(tree),
+        Obj::Tree { entries } => print_tree(&entries)
     }
 }
 

@@ -10,6 +10,7 @@ mod zlib;
 use std::{env::Args, iter::{self, Peekable}, path::Path, str};
 use reqwest::blocking::Client;
 use pack::http::Ref;
+use obj::Obj;
 
 type R<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -50,26 +51,26 @@ fn cat_file(args: &mut Peekable<Args>) -> R<String> {
     let id = arg::unnamed(args, "object id")?;
     sha::validate(&id)?;
     let obj = obj::read_gen(&repo::git_dir()?, &id)?;
-    Ok(obj::print(&obj)?)
+    let output = obj::print(&obj);
+    Ok(output)
 }
 
 fn checkout(args: &mut Peekable<Args>) -> R<String> {
     let commit = arg::unnamed(args, "commit id")?;
     sha::validate(&commit)?;
-    let git_dir = Path::new("./.git");
-    wtree::checkout(git_dir, &commit)?;
+    wtree::checkout(&repo::git_dir()?, &commit)?;
     Ok(format!("HEAD is now at {}.", commit))
 }
 
 fn clone(args: &mut Peekable<Args>) -> R<String> {
     let url = arg::unnamed(args, "repository URL")?;
     let dir = arg::unnamed(args, "target directory")?;
-    let http = Client::new();
 
     println!("Cloning into '{}'...", dir);
     let git_dir = repo::init(Path::new(&dir))?;
 
     println!("Receiving objects...");
+    let http = Client::new();
     let (head, mut pack) = pack::http::clone(&http, &url)?;
     let expected_objs = pack::fmt::parse_header(&mut pack)? as usize;
 
@@ -82,7 +83,7 @@ fn clone(args: &mut Peekable<Args>) -> R<String> {
     println!("Checking out HEAD {}...", head.name);
     wtree::checkout(&git_dir, &head.id)?;
 
-    Ok(String::from("...done."))
+    Ok("...done.".to_string())
 }
 
 fn commit_tree(args: &mut Peekable<Args>) -> R<String> {
@@ -124,43 +125,20 @@ fn ls_remote(args: &mut Peekable<Args>) -> R<String> {
 }
 
 fn ls_tree(args: &mut Peekable<Args>) -> R<String> {
-    fn parse_tree_content(content: &[u8]) -> R<Vec<&str>> {
-        fn iterate_tree(bytes: &[u8]) -> R<impl Iterator<Item = &[u8]>> {
-            let mut parts = bytes.splitn(2, |&b| b == 0);
-            parts.next()
-                .filter(|&header| header.starts_with(b"tree "))
-                .ok_or("Object is not a tree.")?;
-            let mut entries = parts.next().ok_or("Failed to parse tree object: no entries found.")?;
-            let sha_len = 20;
-
-            Ok(iter::from_fn(move || {
-                let utf8_end = entries.iter().position(|&b| b == 0)?;
-                let next = &entries[..utf8_end];
-                entries = &entries[utf8_end + 1 + sha_len ..];
-                Some(next)
-            }))
-        }
-
-        fn get_name(entry: &str) -> R<&str> {
-            entry.split(' ')
-                .skip(1) // skip mode
-                .next()  // get name
-                .ok_or(format!("Unable to parse tree entry '{}'", entry).into())
-        }
-
-        let entries = iterate_tree(content)?
-            .map(str::from_utf8)
-            .flat_map(|x| x.map(get_name))
-            .collect::<R<Vec<_>>>()?;
-        Ok(entries)
+    let name_only = arg::opt::flag(args, "--name-only");
+    let id = arg::unnamed(args, "SHA")?;
+    sha::validate(&id)?;
+    let obj = obj::read_gen(&repo::git_dir()?, &id)?;
+    match obj {
+        Obj::Tree { entries } if name_only =>
+            Ok(entries.iter()
+                .map(|e| e.name.clone())
+                .collect::<Vec<_>>()
+                .join("\n")),
+        Obj::Tree { entries: _} =>
+            Ok(obj::print(&obj)),
+        _ => Err(format!("Object {} is not a tree.", id).into())
     }
-
-    arg::flag(args, "--name-only")?;
-    let sha = arg::unnamed(args, "SHA")?;
-    sha::validate(&sha)?;
-    let content = obj::read(Path::new("./.git"), &sha)?;
-    let data = parse_tree_content(&content)?;
-    Ok(data.join("\n") + "\n")
 }
 
 fn write_tree() -> R<String> {
