@@ -7,10 +7,10 @@ mod util;
 mod wtree;
 mod zlib;
 
-use std::{env::Args, iter::{self, Peekable}, path::Path, str};
+use std::{env::Args, iter::Peekable, path::Path};
 use reqwest::blocking::Client;
+use obj::{Obj, ObjType};
 use pack::http::Ref;
-use obj::Obj;
 
 type R<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -101,10 +101,9 @@ fn commit_tree(args: &mut Peekable<Args>) -> R<String> {
 
 fn hash_object(args: &mut Peekable<Args>) -> R<String> {
     arg::flag(args, "-w")?;
-    let in_file = arg::unnamed(args, "file")?;
-    let content = obj::blob::from_file(Path::new(&in_file))?;
-    let id = sha::print_from_str(&content);
-    obj::write_str(Path::new(".git"), &id, &content)?;
+    let path = arg::unnamed(args, "file")?;
+    let content = util::read_file(&path)?;
+    let id = obj::write_gen(&repo::git_dir()?, ObjType::Blob, &content)?;
     Ok(id)
 }
 
@@ -142,6 +141,6 @@ fn ls_tree(args: &mut Peekable<Args>) -> R<String> {
 }
 
 fn write_tree() -> R<String> {
-    let sha = wtree::write(Path::new(".git"), Path::new("."))?;
-    Ok(sha::print(&sha))
+    let id = wtree::store_all(&repo::git_dir()?, Path::new("."))?;
+    Ok(sha::print(&id))
 }

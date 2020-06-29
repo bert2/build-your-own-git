@@ -225,11 +225,6 @@ pub fn write_str(git_dir: &Path, id: &str, content: &str) -> R<()> {
     write(git_dir, id, content.as_bytes())
 }
 
-pub fn read(git_dir: &Path, id: &str) -> R<Vec<u8>> {
-    let (inflated, _) = zlib::inflate(open_file(git_dir, id)?)?;
-    Ok(inflated)
-}
-
 fn create_file(git_dir: &Path, id: &str) -> R<File> {
     let (dir, filename) = id.split_at(2);
     let obj_dir = git_dir.join("objects").join(dir);
