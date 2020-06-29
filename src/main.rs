@@ -53,7 +53,7 @@ fn cat_file(args: &mut Peekable<Args>) -> R<String> {
     arg::flag(args, "-p")?;
     let id = arg::unnamed(args, "object id")?;
     sha::validate(&id)?;
-    let obj = obj::read_gen(&repo::git_dir()?, &id)?;
+    let obj = obj::read(&repo::git_dir()?, &id)?;
     let output = obj::print(&obj);
     Ok(output)
 }
@@ -94,19 +94,22 @@ fn commit_tree(args: &mut Peekable<Args>) -> R<String> {
     sha::validate(&tree)?;
     let parent = arg::opt::named(args, "-p")?;
     if let Some(p) = parent.as_ref() { sha::validate(p)?; }
-    let msg = arg::named(args, "-m")?;
+    let message = arg::named(args, "-m")?;
 
-    let content = obj::commit::new(&tree, parent, &msg, "bert2", "shuaira@gmail.com")?;
-    let id = sha::print_from_str(&content);
-    obj::write_str(Path::new(".git"), &id, &content)?;
+    let author = obj::print_commit_author("bert2", "shuairan@gmail.com")?;
+    let committer = author.clone();
+    let commit = Obj::Commit { tree, parent, author, committer, message };
+    let commit = obj::print(&commit);
+    let id = obj::write(&repo::git_dir()?, ObjType::Commit, commit.as_bytes())?;
+
     Ok(id)
 }
 
 fn hash_object(args: &mut Peekable<Args>) -> R<String> {
     arg::flag(args, "-w")?;
-    let path = arg::unnamed(args, "file")?;
-    let content = util::read_file(&path)?;
-    let id = obj::write_gen(&repo::git_dir()?, ObjType::Blob, &content)?;
+    let file = arg::unnamed(args, "file")?;
+    let content = wtree::read_file(Path::new(&file))?;
+    let id = obj::write(&repo::git_dir()?, ObjType::Blob, &content)?;
     Ok(id)
 }
 
@@ -130,20 +133,21 @@ fn ls_tree(args: &mut Peekable<Args>) -> R<String> {
     let name_only = arg::opt::flag(args, "--name-only");
     let id = arg::unnamed(args, "SHA")?;
     sha::validate(&id)?;
-    let obj = obj::read_gen(&repo::git_dir()?, &id)?;
+    let obj = obj::read(&repo::git_dir()?, &id)?;
+
     match obj {
         Obj::Tree { entries } if name_only =>
             Ok(entries.iter()
                 .map(|e| e.name.clone())
                 .collect::<Vec<_>>()
                 .join("\n")),
-        Obj::Tree { entries: _} =>
+        Obj::Tree { .. } =>
             Ok(obj::print(&obj)),
         _ => Err(format!("Object {} is not a tree.", id).into())
     }
 }
 
 fn write_tree() -> R<String> {
-    let id = wtree::store_all(&repo::git_dir()?, Path::new("."))?;
-    Ok(sha::print(&id))
+    let id = wtree::write_tree(&repo::git_dir()?, Path::new("."))?;
+    Ok(id)
 }

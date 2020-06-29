@@ -4,8 +4,6 @@ type R<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 pub fn from(data: &[u8]) -> [u8; 20] { Sha1::digest(data).into() }
 
-pub fn from_str(data: &str) -> [u8; 20] { from(data.as_bytes()) }
-
 pub fn print(sha: &[u8]) -> String {
     if sha.len() != 20 { panic!("SHA does not have the required length."); }
     sha.iter()
@@ -15,8 +13,6 @@ pub fn print(sha: &[u8]) -> String {
 }
 
 pub fn print_from(data: &[u8]) -> String { print(&from(data)) }
-
-pub fn print_from_str(data: &str) -> String { print(&from_str(data)) }
 
 pub fn validate(sha: &str) -> R<()> {
     match sha.len() {

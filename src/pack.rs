@@ -162,7 +162,7 @@ pub mod fmt {
                 EntryType::ObjBlob => {
                     let (content, deflated_len) = zlib::inflate(pack.as_ref())?;
                     let obj = RawObj { obj_type: obj_type.try_into()?, content };
-                    let id = obj::write_gen(&git_dir, obj.obj_type, &obj.content)?;
+                    let id = obj::write(&git_dir, obj.obj_type, &obj.content)?;
                     objs.insert(id, obj);
                     Ok(deflated_len)
                 },
@@ -174,7 +174,7 @@ pub mod fmt {
                         Some(base) => {
                             let content = undeltify(delta, &base.content)?;
                             let obj = RawObj { obj_type: base.obj_type, content };
-                            let id = obj::write_gen(&git_dir, obj.obj_type, &obj.content)?;
+                            let id = obj::write(&git_dir, obj.obj_type, &obj.content)?;
                             objs.insert(id, obj);
                         },
                         None => return Err(format!("Found delta referencing unknown base object {}.", base_id).into())
