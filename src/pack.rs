@@ -90,7 +90,7 @@ pub mod http {
 pub mod fmt {
     use std::{convert::{TryInto, TryFrom}, iter, path::{Path}};
     use bytes::{buf::Buf, Bytes};
-    use crate::{obj::{self, ObjType}, sha, zlib::inflate};
+    use crate::{obj::{self, ObjType}, sha, zlib};
 
     type R<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -160,7 +160,7 @@ pub mod fmt {
                 EntryType::ObjCommit |
                 EntryType::ObjTree |
                 EntryType::ObjBlob => {
-                    let (content, deflated_len) = inflate::bytes(pack.as_ref())?;
+                    let (content, deflated_len) = zlib::inflate(pack.as_ref())?;
                     let obj = RawObj { obj_type: obj_type.try_into()?, content };
                     let id = obj::write_gen(&git_dir, obj.obj_type, &obj.content)?;
                     objs.insert(id, obj);
@@ -168,7 +168,7 @@ pub mod fmt {
                 },
                 EntryType::ObjRefDelta => {
                     let base_id = sha::print(&pack.split_to(20));
-                    let (delta, deflated_len) = inflate::bytes(pack.as_ref())?;
+                    let (delta, deflated_len) = zlib::inflate(pack.as_ref())?;
 
                     match objs.get(&base_id) {
                         Some(base) => {

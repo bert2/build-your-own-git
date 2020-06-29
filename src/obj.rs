@@ -1,7 +1,6 @@
 use std::{convert::{TryInto, TryFrom}, fs::{self, File}, io::prelude::Write, iter, path::Path, str::{self, FromStr}};
 use flate2::{Compression, write::ZlibEncoder};
-use crate::sha;
-use crate::zlib::inflate;
+use crate::{sha, zlib};
 
 type R<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -73,13 +72,6 @@ pub mod blob {
         let content = format!("blob {}\x00{}", &data.len(), data);
         Ok(content)
     }
-
-    pub fn parse<'a>(content: &'a str) -> R<(&'a str, &'a str)> {
-        let mut split = content.split('\x00');
-        let header = split.next().unwrap();
-        let data = split.next().ok_or("Content of blob object could not be parsed.")?;
-        Ok((header, data))
-    }
 }
 
 pub mod commit {
@@ -98,7 +90,7 @@ pub mod commit {
 }
 
 pub fn read_gen(git_dir: &Path, id: &str) -> R<Obj> {
-    let (mut bytes, _) = inflate::bytes(open_file(git_dir, id)?)?;
+    let (mut bytes, _) = zlib::inflate(open_file(git_dir, id)?)?;
     let header_end = bytes.iter().position(|&b| b == 0)
         .ok_or(format!("Object {} has no header.", id))?;
 
@@ -240,12 +232,7 @@ pub fn write_str(git_dir: &Path, id: &str, content: &str) -> R<()> {
 }
 
 pub fn read(git_dir: &Path, id: &str) -> R<Vec<u8>> {
-    let (inflated, _) = inflate::bytes(open_file(git_dir, id)?)?;
-    Ok(inflated)
-}
-
-pub fn read_utf8(git_dir: &Path, id: &str) -> R<String> {
-    let (inflated, _) = inflate::utf8(open_file(git_dir, id)?)?;
+    let (inflated, _) = zlib::inflate(open_file(git_dir, id)?)?;
     Ok(inflated)
 }
 
