@@ -11,6 +11,7 @@ use std::{env::Args, iter::Peekable, path::Path};
 use reqwest::blocking::Client;
 use obj::{Obj, ObjType};
 use pack::http::Ref;
+use sha::Sha;
 
 type R<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -51,16 +52,14 @@ fn main() {
 
 fn cat_file(args: &mut Peekable<Args>) -> R<String> {
     arg::flag(args, "-p")?;
-    let id = arg::unnamed(args, "object id")?;
-    sha::validate(&id)?;
+    let id = Sha::from_string(arg::unnamed(args, "object id")?)?;
     let obj = obj::read(&repo::git_dir()?, &id)?;
     let output = obj::print(&obj);
     Ok(output)
 }
 
 fn checkout(args: &mut Peekable<Args>) -> R<String> {
-    let commit = arg::unnamed(args, "commit id")?;
-    sha::validate(&commit)?;
+    let commit = Sha::from_string(arg::unnamed(args, "commit id")?)?;
     wtree::checkout(&repo::git_dir()?, &commit)?;
     Ok(format!("HEAD is now at {}.", commit))
 }
@@ -90,10 +89,8 @@ fn clone(args: &mut Peekable<Args>) -> R<String> {
 }
 
 fn commit_tree(args: &mut Peekable<Args>) -> R<String> {
-    let tree = arg::unnamed(args, "SHA")?;
-    sha::validate(&tree)?;
-    let parent = arg::opt::named(args, "-p")?;
-    if let Some(p) = parent.as_ref() { sha::validate(p)?; }
+    let tree = Sha::from_string(arg::unnamed(args, "SHA")?)?;
+    let parent = arg::opt::named(args, "-p")?.map(Sha::from_string).transpose()?;
     let message = arg::named(args, "-m")?;
 
     let author = obj::print_commit_author("bert2", "shuairan@gmail.com")?;
@@ -102,7 +99,7 @@ fn commit_tree(args: &mut Peekable<Args>) -> R<String> {
     let commit = obj::print(&commit);
     let id = obj::write(&repo::git_dir()?, ObjType::Commit, commit.as_bytes())?;
 
-    Ok(id)
+    Ok(id.into())
 }
 
 fn hash_object(args: &mut Peekable<Args>) -> R<String> {
@@ -110,7 +107,7 @@ fn hash_object(args: &mut Peekable<Args>) -> R<String> {
     let file = arg::unnamed(args, "file")?;
     let content = wtree::read_file(Path::new(&file))?;
     let id = obj::write(&repo::git_dir()?, ObjType::Blob, &content)?;
-    Ok(id)
+    Ok(id.into())
 }
 
 fn init() -> R<String> {
@@ -131,8 +128,7 @@ fn ls_remote(args: &mut Peekable<Args>) -> R<String> {
 
 fn ls_tree(args: &mut Peekable<Args>) -> R<String> {
     let name_only = arg::opt::flag(args, "--name-only");
-    let id = arg::unnamed(args, "SHA")?;
-    sha::validate(&id)?;
+    let id = Sha::from_string(arg::unnamed(args, "SHA")?)?;
     let obj = obj::read(&repo::git_dir()?, &id)?;
 
     match obj {
@@ -149,5 +145,5 @@ fn ls_tree(args: &mut Peekable<Args>) -> R<String> {
 
 fn write_tree() -> R<String> {
     let id = wtree::write_tree(&repo::git_dir()?, Path::new("."))?;
-    Ok(id)
+    Ok(id.into())
 }

@@ -2,12 +2,13 @@ pub mod http {
     use std::{iter, str};
     use bytes::Bytes;
     use reqwest::blocking::Client;
+    use crate::sha::Sha;
 
     type R<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
     #[derive(Clone,Debug)]
     pub struct Ref {
-        pub id: String,
+        pub id: Sha,
         pub name: String
     }
 
@@ -25,7 +26,7 @@ pub mod http {
         fn parse_ref(pkt_line: String) -> R<Ref> {
             let _ref = pkt_line.split('\0').next().unwrap();
             let mut ref_parts = _ref.split(' ');
-            let id = ref_parts.next().unwrap().to_string();
+            let id = Sha::from_str(ref_parts.next().unwrap())?;
             let name = ref_parts.next().ok_or("Failed to parse ref pkt-line.")?.to_string();
             Ok(Ref { id, name })
         }
@@ -90,7 +91,7 @@ pub mod http {
 pub mod fmt {
     use std::{convert::{TryInto, TryFrom}, iter, path::{Path}};
     use bytes::{buf::Buf, Bytes};
-    use crate::{obj::{self, ObjType}, sha, zlib};
+    use crate::{obj::{self, ObjType}, sha::Sha, zlib};
 
     type R<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -167,7 +168,7 @@ pub mod fmt {
                     Ok(deflated_len)
                 },
                 EntryType::ObjRefDelta => {
-                    let base_id = sha::print(&pack.split_to(20));
+                    let base_id = Sha::from_bytes(&pack.split_to(20))?;
                     let (delta, deflated_len) = zlib::inflate(pack.as_ref())?;
 
                     match objs.get(&base_id) {
@@ -298,10 +299,10 @@ pub mod fmt {
     }
 
     fn parse_checksum(pack: &mut Bytes) -> R<()> {
-        let checksum = pack.split_off(pack.len() - 20);
-        let packsum = sha::from(&pack);
+        let checksum = Sha::from_bytes(&pack.split_off(pack.len() - 20))?;
+        let packsum = Sha::generate(&pack);
 
-        if packsum != checksum.as_ref() {
+        if packsum != checksum {
             Err("Pack file corrupted: checksum mismatch.".into())
         } else {
             Ok(())

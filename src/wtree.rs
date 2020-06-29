@@ -1,5 +1,5 @@
 use std::{fs::{self, DirEntry, File}, io::Read, path::Path};
-use crate::{obj::{self, Obj, ObjType}, util, sha};
+use crate::{obj::{self, Obj, ObjType}, util, sha::Sha};
 
 type R<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -18,8 +18,8 @@ pub fn clear(git_dir: & Path) -> R<()> {
     Ok(())
 }
 
-pub fn checkout(git_dir: &Path, commit_id: &str) -> R<()> {
-    fn checkout_tree(git_dir: &Path, parent: &Path, id: &str) -> R<()> {
+pub fn checkout(git_dir: &Path, commit: &Sha) -> R<()> {
+    fn checkout_tree(git_dir: &Path, parent: &Path, id: &Sha) -> R<()> {
         fs::create_dir_all(parent)?;
 
         match obj::read(git_dir, id)? {
@@ -34,18 +34,18 @@ pub fn checkout(git_dir: &Path, commit_id: &str) -> R<()> {
                     .collect::<R<Vec<_>>>()?;
                     Ok(())
             },
-            _ => Err(format!("Object {} is not a tree.", id).into())
+            _ => Err(format!("Object {} is not a tree.", id.value()).into())
         }
     }
 
-    fn checkout_blob(git_dir: &Path, filename: &Path, id: &str) -> R<()> {
+    fn checkout_blob(git_dir: &Path, filename: &Path, id: &Sha) -> R<()> {
         match obj::read(git_dir, id)? {
             Obj::Blob { content } => Ok(fs::write(filename, content)?),
-            _ => Err(format!("Object {} is not a blob.", id).into())
+            _ => Err(format!("Object {} is not a blob.", id.value()).into())
         }
     }
 
-    let obj = obj::read(git_dir, &commit_id)?;
+    let obj = obj::read(git_dir, &commit)?;
     let target_dir = git_dir.parent()
         .ok_or(format!("Reached file system root while trying to get parent of {:?}.", git_dir))?;
 
@@ -54,16 +54,16 @@ pub fn checkout(git_dir: &Path, commit_id: &str) -> R<()> {
             clear(git_dir)?;
             checkout_tree(git_dir, target_dir, &t)
         },
-        _ => Err(format!("Object {} is not a commit.", commit_id).into())
+        _ => Err(format!("Object {} is not a commit.", commit.value()).into())
     }
 }
 
-pub fn write_tree(git_dir: &Path, path: &Path) -> R<String> {
+pub fn write_tree(git_dir: &Path, path: &Path) -> R<Sha> {
     fn render_entry(git_dir: &Path, entry: &DirEntry) -> R<Vec<u8>> {
         fn render_file(entry: &DirEntry) -> R<Vec<u8>> {
             let mode_and_name = format!("100644 {}\x00", util::name(entry));
             let content = read_file(&entry.path())?;
-            let id = sha::from(&content);
+            let id = Sha::generate_raw(&content);
             let mut row = mode_and_name.into_bytes();
             row.extend_from_slice(&id);
             Ok(row)
@@ -73,7 +73,7 @@ pub fn write_tree(git_dir: &Path, path: &Path) -> R<String> {
             let mode_and_name = format!("040000 {}\x00", util::name(entry));
             let id = write_tree(git_dir, &entry.path())?;
             let mut row = mode_and_name.into_bytes();
-            row.extend_from_slice(&id.as_bytes());
+            row.extend_from_slice(&id.to_bytes());
             Ok(row)
         }
 

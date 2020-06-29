@@ -1,12 +1,12 @@
 use std::{convert::{TryInto, TryFrom}, fs::{self, File}, iter, path::Path, str::{self, FromStr}};
-use crate::{util, sha, zlib};
+use crate::{util, sha::Sha, zlib};
 
 type R<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 pub enum Obj {
     Commit {
-        tree: String,
-        parent: Option<String>,
+        tree: Sha,
+        parent: Option<Sha>,
         author: String,
         committer: String,
         message: String
@@ -23,11 +23,22 @@ pub enum ObjType {
     Tag
 }
 
+impl ObjType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ObjType::Commit => "commit",
+            ObjType::Tree   => "tree",
+            ObjType::Blob   => "blob",
+            ObjType::Tag    => panic!("Unsupported object type {:?}.", self),
+        }
+    }
+}
+
 #[derive(Clone,Debug)]
 pub struct TreeEntry {
     pub mode: u32,
     pub name: String,
-    pub id: String,
+    pub id: Sha,
 }
 
 impl TreeEntry {
@@ -54,19 +65,8 @@ impl TryFrom<&str> for ObjType {
     }
 }
 
-impl ObjType {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            ObjType::Commit => "commit",
-            ObjType::Tree   => "tree",
-            ObjType::Blob   => "blob",
-            ObjType::Tag    => panic!("Unsupported object type {:?}.", self),
-        }
-    }
-}
-
-pub fn create(git_dir: &Path, id: &str) -> R<File> {
-    let (dir, filename) = id.split_at(2);
+pub fn create(git_dir: &Path, id: &Sha) -> R<File> {
+    let (dir, filename) = id.value().split_at(2);
     let obj_dir = git_dir.join("objects").join(dir);
     fs::create_dir_all(&obj_dir)?;
     let path = obj_dir.join(filename);
@@ -75,15 +75,15 @@ pub fn create(git_dir: &Path, id: &str) -> R<File> {
     Ok(file)
 }
 
-pub fn open(git_dir: &Path, id: &str) -> R<File> {
-    let (dir, filename) = id.split_at(2);
+pub fn open(git_dir: &Path, id: &Sha) -> R<File> {
+    let (dir, filename) = id.value().split_at(2);
     let path = git_dir.join("objects").join(dir).join(filename);
     let file = File::open(&path)
         .map_err(|e| format!("Failed to read object {:?}. {}", path, e))?;
     Ok(file)
 }
 
-pub fn read(git_dir: &Path, id: &str) -> R<Obj> {
+pub fn read(git_dir: &Path, id: &Sha) -> R<Obj> {
     fn parse_commit(bytes: &mut Vec<u8>) -> R<Obj> {
         fn parse_line(label: &str, bytes: &mut Vec<u8>) -> R<String> {
             let end = bytes.iter().position(|&b| b == b'\n').ok_or("Unexpected EOF.")?;
@@ -106,7 +106,7 @@ pub fn read(git_dir: &Path, id: &str) -> R<Obj> {
             Ok(data)
         }
 
-        let tree = parse_line("tree", bytes)?;
+        let tree = Sha::from_string(parse_line("tree", bytes)?)?;
 
         Ok(Obj::Commit { tree, parent: None, author: String::new(), committer: String::new(), message: String::new() })
     }
@@ -135,10 +135,11 @@ pub fn read(git_dir: &Path, id: &str) -> R<Obj> {
                 let name = name.unwrap().to_string();
 
                 let id = &bytes[utf8_end+1 .. utf8_end+1+id_len];
-                let id = sha::print(id);
+                let id = Sha::from_bytes(id);
+                if let Err(e) = id { return Some(Err(format!("Invalid SHA in tree entry: {}", e).into())) }
 
                 bytes = &bytes[utf8_end+1+id_len ..];
-                Some(Ok(TreeEntry { id, mode, name }))
+                Some(Ok(TreeEntry { id: id.unwrap(), mode, name }))
             })
         }
 
@@ -177,7 +178,7 @@ pub fn read(git_dir: &Path, id: &str) -> R<Obj> {
     }
 }
 
-pub fn write(git_dir: &Path, obj_type: ObjType, content: &[u8]) -> R<String> {
+pub fn write(git_dir: &Path, obj_type: ObjType, content: &[u8]) -> R<Sha> {
     let mut bytes: Vec<u8> = Vec::new();
     bytes.extend_from_slice(obj_type.as_str().as_bytes());
     bytes.push(b' ');
@@ -185,15 +186,15 @@ pub fn write(git_dir: &Path, obj_type: ObjType, content: &[u8]) -> R<String> {
     bytes.push(b'\0');
     bytes.extend_from_slice(content);
 
-    let id = sha::print_from(&bytes);
+    let id = Sha::generate(&bytes);
     let file = create(git_dir, &id)?;
-    zlib::deflate(content, file)?;
+    zlib::deflate(&bytes, file)?;
 
     Ok(id)
 }
 
 pub fn print(obj: &Obj) -> String {
-    fn print_commit(tree: &str, parent: &Option<String>, author: &str, committer: &str, message: &str) -> String {
+    fn print_commit(tree: &Sha, parent: &Option<Sha>, author: &str, committer: &str, message: &str) -> String {
         let mut commit = String::new();
 
         commit.push_str(&format!("tree {}\n", tree));
