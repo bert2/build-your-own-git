@@ -18,8 +18,8 @@ pub fn clear(git_dir: & Path) -> R<()> {
     Ok(())
 }
 
-pub fn checkout_commit(git_dir: &Path, id: &str) -> R<()> {
-    let obj = obj::read_gen(git_dir, &id)?;
+pub fn checkout(git_dir: &Path, commit_id: &str) -> R<()> {
+    let obj = obj::read_gen(git_dir, &commit_id)?;
     let target_dir = git_dir.parent()
         .ok_or(format!("Reached file system root while trying to get parent of {:?}.", git_dir))?;
 
@@ -28,11 +28,11 @@ pub fn checkout_commit(git_dir: &Path, id: &str) -> R<()> {
             clear(git_dir)?;
             checkout_tree(git_dir, target_dir, &t)
         },
-        _ => Err(format!("Object {} is not a commit.", id).into())
+        _ => Err(format!("Object {} is not a commit.", commit_id).into())
     }
 }
 
-pub fn checkout_tree(git_dir: &Path, parent: &Path, id: &str) -> R<()> {
+fn checkout_tree(git_dir: &Path, parent: &Path, id: &str) -> R<()> {
     fs::create_dir_all(parent)?;
 
     match obj::read_gen(git_dir, id)? {
@@ -51,7 +51,7 @@ pub fn checkout_tree(git_dir: &Path, parent: &Path, id: &str) -> R<()> {
     }
 }
 
-pub fn checkout_blob(git_dir: &Path, filename: &Path, id: &str) -> R<()> {
+fn checkout_blob(git_dir: &Path, filename: &Path, id: &str) -> R<()> {
     match obj::read_gen(git_dir, id)? {
         Obj::Blob { content } => Ok(fs::write(filename, content)?),
         _ => Err(format!("Object {} is not a blob.", id).into())

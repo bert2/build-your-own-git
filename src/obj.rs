@@ -26,6 +26,17 @@ pub struct TreeEntry {
     pub id: String,
 }
 
+impl TreeEntry {
+    fn print_type(&self) -> R<&'static str> {
+        match self.mode {
+            040000 => Ok("tree"),
+            100644 |
+            100755 => Ok("blob"),
+            mode   => Err(format!("Unsupported file mode: {}", mode).into())
+        }
+    }
+}
+
 impl TryFrom<&str> for ObjType {
     type Error = String;
     fn try_from(obj_type: &str) -> Result<Self, Self::Error> {
@@ -48,11 +59,6 @@ impl ObjType {
             ObjType::Tag    => panic!("Unsupported object type {:?}.", self),
         }
     }
-}
-
-#[derive(Clone,Debug)]
-pub struct Commit {
-    tree: String
 }
 
 pub mod blob {
@@ -119,6 +125,31 @@ pub fn read_gen(git_dir: &Path, id: &str) -> R<Obj> {
         ObjType::Tree   => parse_tree(&bytes),
         ObjType::Blob   => Ok(Obj::Blob { content: bytes }),
         _               => Err(format!("Unsupported object type {:?}", obj_type).into())
+    }
+}
+
+pub fn print(obj: &Obj) -> R<String> {
+    fn print_commit(tree: &str) -> String {
+        format!("tree {}\n", tree)
+    }
+
+    fn print_tree(entries: &Vec<TreeEntry>) -> R<String> {
+        fn print_entry(e: &TreeEntry) -> R<String> {
+            Ok(format!("{:06} {} {}    {}", e.mode, e.print_type()?, e.id, e.name))
+        }
+
+        let lines = entries.iter()
+            .map(print_entry)
+            .collect::<R<Vec<_>>>()?
+            .join("\n");
+
+        Ok(lines)
+    }
+
+    match obj {
+        Obj::Blob { content } => Ok(String::from_utf8_lossy(&content).to_string()),
+        Obj::Commit { tree }  => Ok(print_commit(tree)),
+        Obj::Tree { entries } => Ok(print_tree(&entries)?)
     }
 }
 

@@ -88,12 +88,50 @@ pub mod http {
 }
 
 pub mod fmt {
-    use std::{convert::TryInto, iter};
-    use bytes::Bytes;
-    use crate::obj::ObjType;
-    use crate::sha;
+    use std::{convert::{TryInto, TryFrom}, iter, path::{Path}};
+    use bytes::{buf::Buf, Bytes};
+    use crate::{obj::{self, ObjType}, sha, zlib::inflate};
 
     type R<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+
+    #[derive(Debug)]
+    pub enum EntryType {
+        ObjCommit   = 1,
+        ObjTree     = 2,
+        ObjBlob     = 3,
+        ObjTag      = 4,
+        ObjOfsDelta = 6,
+        ObjRefDelta = 7
+    }
+
+    impl TryFrom<u8> for EntryType {
+        type Error = String;
+        fn try_from(val: u8) -> Result<Self, Self::Error> {
+            match val {
+                1 => Ok(EntryType::ObjCommit),
+                2 => Ok(EntryType::ObjTree),
+                3 => Ok(EntryType::ObjBlob),
+                4 => Ok(EntryType::ObjTag),
+                6 => Ok(EntryType::ObjOfsDelta),
+                7 => Ok(EntryType::ObjRefDelta),
+                _ => Err(format!("Unknown entry type {}.", val).into())
+            }
+        }
+    }
+
+    impl TryFrom<EntryType> for ObjType {
+        type Error = String;
+        fn try_from(entry_type: EntryType) -> Result<Self, Self::Error> {
+            match entry_type {
+                EntryType::ObjCommit   => Ok(ObjType::Commit),
+                EntryType::ObjTree     => Ok(ObjType::Tree),
+                EntryType::ObjBlob     => Ok(ObjType::Blob),
+                EntryType::ObjTag      => Ok(ObjType::Tag),
+                EntryType::ObjOfsDelta |
+                EntryType::ObjRefDelta => Err(format!("Entry type {:?} is not a proper object type.", entry_type).into())
+            }
+        }
+    }
 
     pub struct RawObj {
         pub obj_type: ObjType,
@@ -104,6 +142,53 @@ pub mod fmt {
     enum Instr {
         Copy { start: usize, end: usize },
         Insert { data: Bytes }
+    }
+
+    pub fn unpack_objects(git_dir: &Path, pack: &mut Bytes) -> R<usize> {
+        fn has_no_cont_bit(byte: &u8) -> bool { (byte & 0b10000000) == 0 }
+        let mut objs = std::collections::HashMap::new();
+
+        loop {
+            let first = pack.first();
+            if let None = first { break; }
+
+            let obj_type: EntryType = ((first.unwrap() & 0b01110000) >> 4).try_into()?;
+            let obj_start = pack.iter().position(has_no_cont_bit).ok_or("Never ending variable sized integer.")?;
+            let _obj_props = pack.split_to(obj_start + 1);
+
+            let deflated_len = match obj_type {
+                EntryType::ObjCommit |
+                EntryType::ObjTree |
+                EntryType::ObjBlob => {
+                    let (content, deflated_len) = inflate::bytes(pack.as_ref())?;
+                    let obj = RawObj { obj_type: obj_type.try_into()?, content };
+                    let id = obj::write_gen(&git_dir, obj.obj_type, &obj.content)?;
+                    objs.insert(id, obj);
+                    Ok(deflated_len)
+                },
+                EntryType::ObjRefDelta => {
+                    let base_id = sha::print(&pack.split_to(20));
+                    let (delta, deflated_len) = inflate::bytes(pack.as_ref())?;
+
+                    match objs.get(&base_id) {
+                        Some(base) => {
+                            let content = undeltify(delta, &base.content)?;
+                            let obj = RawObj { obj_type: base.obj_type, content };
+                            let id = obj::write_gen(&git_dir, obj.obj_type, &obj.content)?;
+                            objs.insert(id, obj);
+                        },
+                        None => return Err(format!("Found delta referencing unknown base object {}.", base_id).into())
+                    }
+
+                    Ok(deflated_len)
+                },
+                _ => Err(format!("Unsupported entry type {:?}", obj_type))
+            }?;
+
+            pack.advance(deflated_len.try_into()?);
+        }
+
+        Ok(objs.len())
     }
 
     pub fn undeltify(delta: Vec<u8>, base: &[u8]) -> R<Vec<u8>> {

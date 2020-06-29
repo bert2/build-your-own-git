@@ -2,6 +2,16 @@ use std::{fs, path::{Path, PathBuf}};
 
 type R<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
+pub fn git_dir() -> R<PathBuf> {
+    let wd = Path::new(".");
+    let git_dir = wd.join(".git");
+    if git_dir.as_path().exists() {
+        Ok(git_dir)
+    } else {
+        Err(format!("No '.git' directory found in {:?}.", fs::canonicalize(wd).unwrap()).into())
+    }
+}
+
 pub fn init(path: &Path) -> R<PathBuf> {
     let git_dir = path.join(".git");
     fs::create_dir_all(git_dir.join("objects/info"))?;

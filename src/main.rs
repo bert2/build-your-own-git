@@ -7,53 +7,11 @@ mod util;
 mod wtree;
 mod zlib;
 
-use std::{convert::{TryInto, TryFrom}, env::Args, iter::{self, Peekable}, path::Path, str};
-use bytes::buf::Buf;
+use std::{env::Args, iter::{self, Peekable}, path::Path, str};
 use reqwest::blocking::Client;
-use obj::ObjType;
-use pack::{fmt::RawObj, http::Ref};
-use zlib::inflate;
+use pack::http::Ref;
 
 type R<T> = std::result::Result<T, Box<dyn std::error::Error>>;
-
-#[derive(Debug)]
-pub enum EntryType {
-    ObjCommit   = 1,
-    ObjTree     = 2,
-    ObjBlob     = 3,
-    ObjTag      = 4,
-    ObjOfsDelta = 6,
-    ObjRefDelta = 7
-}
-
-impl TryFrom<u8> for EntryType {
-    type Error = String;
-    fn try_from(val: u8) -> Result<Self, Self::Error> {
-        match val {
-            1 => Ok(EntryType::ObjCommit),
-            2 => Ok(EntryType::ObjTree),
-            3 => Ok(EntryType::ObjBlob),
-            4 => Ok(EntryType::ObjTag),
-            6 => Ok(EntryType::ObjOfsDelta),
-            7 => Ok(EntryType::ObjRefDelta),
-            _ => Err(format!("Unknown entry type {}.", val).into())
-        }
-    }
-}
-
-impl TryFrom<EntryType> for obj::ObjType {
-    type Error = String;
-    fn try_from(entry_type: EntryType) -> Result<Self, Self::Error> {
-        match entry_type {
-            EntryType::ObjCommit   => Ok(ObjType::Commit),
-            EntryType::ObjTree     => Ok(ObjType::Tree),
-            EntryType::ObjBlob     => Ok(ObjType::Blob),
-            EntryType::ObjTag      => Ok(ObjType::Tag),
-            EntryType::ObjOfsDelta |
-            EntryType::ObjRefDelta => Err(format!("Entry type {:?} is not a proper object type.", entry_type).into())
-        }
-    }
-}
 
 fn main() {
     fn run(args: &mut Peekable<Args>) -> R<String> {
@@ -89,18 +47,17 @@ fn main() {
 
 fn cat_file(args: &mut Peekable<Args>) -> R<String> {
     arg::flag(args, "-p")?;
-    let sha = arg::unnamed(args, "object id")?;
-    sha::validate(&sha)?;
-    let content = obj::read_utf8(Path::new(".git"), &sha)?;
-    let (_, data) = obj::blob::parse(&content)?;
-    Ok(data.to_string())
+    let id = arg::unnamed(args, "object id")?;
+    sha::validate(&id)?;
+    let obj = obj::read_gen(&repo::git_dir()?, &id)?;
+    Ok(obj::print(&obj)?)
 }
 
 fn checkout(args: &mut Peekable<Args>) -> R<String> {
     let commit = arg::unnamed(args, "commit id")?;
     sha::validate(&commit)?;
     let git_dir = Path::new("./.git");
-    wtree::checkout_commit(git_dir, &commit)?;
+    wtree::checkout(git_dir, &commit)?;
     Ok(format!("HEAD is now at {}.", commit))
 }
 
@@ -111,60 +68,19 @@ fn clone(args: &mut Peekable<Args>) -> R<String> {
 
     println!("Cloning into '{}'...", dir);
     let git_dir = repo::init(Path::new(&dir))?;
+
     println!("Receiving objects...");
     let (head, mut pack) = pack::http::clone(&http, &url)?;
-    let obj_cnt = pack::fmt::parse_header(&mut pack)? as usize;
-    println!("Unpacking {} objects...", obj_cnt);
+    let expected_objs = pack::fmt::parse_header(&mut pack)? as usize;
 
-    fn has_no_cont_bit(byte: &u8) -> bool { (byte & 0b10000000) == 0 }
-    let mut objs = std::collections::HashMap::new();
-
-    loop {
-        let first = pack.first();
-        if let None = first { break; }
-
-        let obj_type: EntryType = ((first.unwrap() & 0b01110000) >> 4).try_into()?;
-        let obj_start = pack.iter().position(has_no_cont_bit).ok_or("Never ending variable sized integer.")?;
-        let _obj_props = pack.split_to(obj_start + 1);
-
-        let deflated_len = match obj_type {
-            EntryType::ObjCommit |
-            EntryType::ObjTree |
-            EntryType::ObjBlob => {
-                let (content, deflated_len) = inflate::bytes(pack.as_ref())?;
-                let obj = RawObj { obj_type: obj_type.try_into()?, content };
-                let id = obj::write_gen(&git_dir, obj.obj_type, &obj.content)?;
-                objs.insert(id, obj);
-                Ok(deflated_len)
-            },
-            EntryType::ObjRefDelta => {
-                let base_id = sha::print(&pack.split_to(20));
-                let (delta, deflated_len) = inflate::bytes(pack.as_ref())?;
-
-                match objs.get(&base_id) {
-                    Some(base) => {
-                        let content = pack::fmt::undeltify(delta, &base.content)?;
-                        let obj = RawObj { obj_type: base.obj_type, content };
-                        let id = obj::write_gen(&git_dir, obj.obj_type, &obj.content)?;
-                        objs.insert(id, obj);
-                    },
-                    None => return Err(format!("Found delta referencing unknown base object {}.", base_id).into())
-                }
-
-                Ok(deflated_len)
-            },
-            _ => Err(format!("Unsupported entry type {:?}", obj_type))
-        }?;
-
-        pack.advance(deflated_len.try_into()?);
-    }
-
-    if objs.len() != obj_cnt {
-        return Err(format!("Expected {} objects in pack file but found {}.", obj_cnt, objs.len()).into());
+    println!("Unpacking {} objects...", expected_objs);
+    let objs = pack::fmt::unpack_objects(&git_dir, &mut pack)?;
+    if objs != expected_objs {
+        return Err(format!("Expected {} objects in pack file but found {}.", expected_objs, objs).into());
     }
 
     println!("Checking out HEAD {}...", head.name);
-    wtree::checkout_commit(&git_dir, &head.id)?;
+    wtree::checkout(&git_dir, &head.id)?;
 
     Ok(String::from("...done."))
 }
