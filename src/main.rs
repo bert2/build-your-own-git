@@ -10,7 +10,7 @@ mod zlib;
 use std::{convert::{TryInto, TryFrom}, env::Args, iter::{self, Peekable}, path::Path, str};
 use bytes::buf::Buf;
 use reqwest::blocking::Client;
-use obj::{Obj, ObjType};
+use obj::ObjType;
 use pack::{fmt::RawObj, http::Ref};
 use zlib::inflate;
 
@@ -166,7 +166,7 @@ fn clone(args: &mut Peekable<Args>) -> R<String> {
     println!("Checking out HEAD {}...", head.name);
     wtree::checkout_commit(&git_dir, &head.id)?;
 
-    Ok(String::from("done"))
+    Ok(String::from("...done."))
 }
 
 fn commit_tree(args: &mut Peekable<Args>) -> R<String> {

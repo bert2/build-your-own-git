@@ -8,8 +8,7 @@ type R<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 pub enum Obj {
     Commit { tree: String },
     Tree { entries: Vec<TreeEntry> },
-    Blob { content: Vec<u8> },
-    Tag
+    Blob { content: Vec<u8> }
 }
 
 #[derive(Clone,Copy,Debug)]
@@ -119,7 +118,7 @@ pub fn read_gen(git_dir: &Path, id: &str) -> R<Obj> {
         ObjType::Commit => parse_commit(&mut bytes),
         ObjType::Tree   => parse_tree(&bytes),
         ObjType::Blob   => Ok(Obj::Blob { content: bytes }),
-        _               => Err(format!("Unsupported objec type {:?}", obj_type).into())
+        _               => Err(format!("Unsupported object type {:?}", obj_type).into())
     }
 }
 

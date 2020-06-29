@@ -25,7 +25,6 @@ pub fn checkout_commit(git_dir: &Path, id: &str) -> R<()> {
 
     match obj {
         Obj::Commit { tree: t } => {
-            println!("Checking out tree {}", t);
             clear(git_dir)?;
             checkout_tree(git_dir, target_dir, &t)
         },
@@ -54,11 +53,7 @@ pub fn checkout_tree(git_dir: &Path, parent: &Path, id: &str) -> R<()> {
 
 pub fn checkout_blob(git_dir: &Path, filename: &Path, id: &str) -> R<()> {
     match obj::read_gen(git_dir, id)? {
-        Obj::Blob { content } => {
-            println!("Checking out blob {} into {:?}...", id, filename);
-            fs::write(filename, content)?;
-            Ok(())
-        },
+        Obj::Blob { content } => Ok(fs::write(filename, content)?),
         _ => Err(format!("Object {} is not a blob.", id).into())
     }
 }
