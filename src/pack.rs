@@ -210,7 +210,7 @@ pub mod fmt {
 
             match instr {
                 Instr::Copy { start, end } => content.extend_from_slice(&base[start..end]),
-                Instr::Insert { data }      => content.extend_from_slice(&data)
+                Instr::Insert { data }     => content.extend_from_slice(&data)
             };
         }
 
