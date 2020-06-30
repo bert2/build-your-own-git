@@ -32,9 +32,6 @@ fn main() {
         }
     }
 
-    let x = 1;
-    println!("=== startup ==============");
-
     let mut args = arg::get_all();
     let exit_code = match run(&mut args) {
         Ok(msg) => {
