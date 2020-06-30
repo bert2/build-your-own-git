@@ -107,8 +107,14 @@ pub fn read(git_dir: &Path, id: &Sha) -> R<Obj> {
         }
 
         let tree = Sha::from_string(parse_line("tree", bytes)?)?;
+        let parent = Some(Sha::from_string(parse_line("parent", bytes)?)?);
+        let author = parse_line("author", bytes)?;
+        let committer = parse_line("committer", bytes)?;
+        let message = str::from_utf8(&bytes)
+            .map_err(|e| format!("Invalid data in commit message: {}", e))?
+            .to_string();
 
-        Ok(Obj::Commit { tree, parent: None, author: String::new(), committer: String::new(), message: String::new() })
+        Ok(Obj::Commit { tree, parent, author, committer, message })
     }
 
     fn parse_tree(bytes: &[u8]) -> R<Obj> {
