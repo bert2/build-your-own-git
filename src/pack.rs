@@ -1,7 +1,7 @@
 pub mod http {
     use std::{iter, str};
     use bytes::Bytes;
-    use reqwest::blocking::Client;
+    use reqwest::{blocking::{Client, RequestBuilder, Response}, StatusCode};
     use crate::sha::Sha;
 
     type R<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -31,9 +31,8 @@ pub mod http {
             Ok(Ref { id, name })
         }
 
-        let url = format!("{}/info/refs?service=git-upload-pack", url.trim_end_matches('/'));
-
-        let bytes = http.get(&url).send()?.error_for_status()?.bytes()?;
+        let bytes = query_repo(url, "/info/refs?service=git-upload-pack", |url| http.get(url))?
+            .bytes()?;
 
         let refs = pkt_lines(bytes)
             .skip(2) // skip command & flush-pkt
@@ -46,7 +45,6 @@ pub mod http {
     }
 
     pub fn clone(http: &Client, url: &str) -> R<(Ref, Bytes)> {
-        let url = url.trim_end_matches('/');
         let refs = get_advertised_refs(http, url, true)?;
         let head = refs.iter()
             .find(|r| r.name == "refs/heads/master")
@@ -56,17 +54,32 @@ pub mod http {
             .collect::<Vec<_>>()
             .concat();
 
-        let mut bytes = http.post(&[url, "/git-upload-pack"].concat())
+        let mut bytes = query_repo(url, "/git-upload-pack", |url| http
+            .post(url)
             .header("Content-Type", "application/x-git-upload-pack-request")
-            .body(format!("{}00000009done\n", wants))
-            .send()?
-            .error_for_status()?
+            .body(format!("{}00000009done\n", wants)))?
             .bytes()?;
 
         match parse_pkt_line(&mut bytes)?.as_str() {
             "NAK" => Ok((head.clone(), bytes)),
             _     => Err("Missing 'NAK'.".into())
         }
+    }
+
+    fn query_repo<F>(repo_url: &str, resource_path: &str, request: F) -> R<Response>
+    where F: Fn(&str) -> RequestBuilder {
+        let repo_url = repo_url.trim_end_matches('/').to_string();
+
+        request(&format!("{}{}", repo_url, resource_path))
+            .send()?
+            .error_for_status()
+            .or_else(|e| match e.status() {
+                Some(StatusCode::NOT_FOUND) |
+                Some(StatusCode::FORBIDDEN) =>
+                    request(&format!("{}.git{}", repo_url, resource_path)).send(),
+                _ => Err(e)
+            })
+            .map_err(|e| format!("Request to repo failed: {}", e).into())
     }
 
     fn parse_pkt_line(bytes: &mut Bytes) -> R<String> {
