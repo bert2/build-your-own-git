@@ -110,7 +110,7 @@ pub fn read(git_dir: &Path, id: &Sha) -> R<Obj> {
         let parent = Some(Sha::from_string(parse_line("parent", bytes)?)?);
         let author = parse_line("author", bytes)?;
         let committer = parse_line("committer", bytes)?;
-        let message = str::from_utf8(&bytes[1..])
+        let message = str::from_utf8(&bytes[1 .. bytes.len()-1])
             .map_err(|e| format!("Invalid data in commit message: {}", e))?
             .to_string();
 
@@ -209,6 +209,7 @@ pub fn print(obj: &Obj) -> String {
         commit.push_str(&format!("committer {}\n", committer));
         commit.push_str("\n");
         commit.push_str(message);
+        commit.push_str("\n");
 
         commit
     }
