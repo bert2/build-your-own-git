@@ -131,10 +131,10 @@ fn ls_tree(args: &mut Peekable<Args>) -> R<String> {
     match obj {
         Obj::Tree { entries } if name_only =>
             Ok(entries.iter()
-                .map(|e| e.name.clone())
+                .map(|e| e.name.clone() + "\n")
                 .collect::<Vec<_>>()
-                .join("\n")),
-        Obj::Tree { .. } =>
+                .concat()),
+        Obj::Tree {..} =>
             Ok(obj::print(&obj)),
         _ => Err(format!("Object {} is not a tree.", id).into())
     }
