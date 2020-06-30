@@ -208,9 +208,9 @@ pub fn print(obj: &Obj) -> String {
 
     fn print_tree(entries: &Vec<TreeEntry>) -> String {
         entries.iter()
-            .map(|e| format!("{:06} {} {}    {}", e.mode, e.print_type(), e.id, e.name))
+            .map(|e| format!("{:06} {} {}    {}\n", e.mode, e.print_type(), e.id, e.name))
             .collect::<Vec<_>>()
-            .join("\n")
+            .concat()
     }
 
     match obj {
